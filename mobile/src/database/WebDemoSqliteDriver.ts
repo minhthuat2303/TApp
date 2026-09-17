@@ -120,12 +120,22 @@ interface SyncQueueRow {
 
 interface ConflictRow {
   id: number;
+  conflict_id?: string;
+  client_transaction_id?: string;
   entity_type: string;
   entity_id: string;
   server_data: string;
   local_data: string;
-  status: 'UNRESOLVED' | 'RESOLVED';
-  created_at: string;
+  reason?: string;
+  status: 'UNRESOLVED' | 'RESOLVED' | 'OPEN';
+  conflict_type?: string;
+  operation?: string;
+  device_id?: string;
+  user_id?: number;
+  resolution?: string | null;
+  resolved_by?: number | null;
+  detected_at?: string;
+  created_at?: string;
   resolved_at?: string | null;
 }
 
@@ -169,9 +179,12 @@ interface InventoryLotRow {
 interface CostHistoryRow {
   id: number;
   product_id: number;
-  old_cost_price: number;
-  new_cost_price: number;
-  reason: string | null;
+  old_cost_price?: number;
+  new_cost_price?: number;
+  cost_price?: number;
+  effective_from?: string;
+  reason?: string | null;
+  note?: string | null;
   created_by: number | null;
   created_at: string;
 }
@@ -179,10 +192,12 @@ interface CostHistoryRow {
 interface PriceHistoryRow {
   id: number;
   product_id: number;
-  old_price: number;
-  new_price: number;
-  effective_from: string;
-  reason: string | null;
+  old_price?: number;
+  new_price?: number;
+  price?: number;
+  effective_from?: string;
+  reason?: string | null;
+  note?: string | null;
   created_by: number | null;
   created_at: string;
 }

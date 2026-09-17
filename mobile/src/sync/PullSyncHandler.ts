@@ -61,12 +61,18 @@ export class PullSyncHandler {
         product_types: productTypes = [],
         products = [],
         price_history: priceHistory = [],
+        cost_price_history: costPriceHistory = [],
         inventory_lots: inventoryLots = [],
+        sales_records: salesRecords = [],
+        sale_cost_allocations: saleCostAllocations = [],
+        stock_movements: stockMovements = [],
         next_cursor: nextCursor,
         has_more: moreAvailable,
       } = data;
 
-      const batchCount = categories.length + productTypes.length + products.length + priceHistory.length + inventoryLots.length;
+      const batchCount = categories.length + productTypes.length + products.length +
+        priceHistory.length + costPriceHistory.length + inventoryLots.length +
+        salesRecords.length + saleCostAllocations.length + stockMovements.length;
 
       // --- ATOMIC TRANSACTION: APPLY CHANGES + UPDATE CURSOR ---
       await this.db.withTransaction(async (tx: ITransactionClient) => {
@@ -128,7 +134,15 @@ export class PullSyncHandler {
           `, [ph.id, ph.product_id, ph.price, ph.effective_from, ph.note, ph.created_by, ph.created_at]);
         }
 
-        // 5. Inventory Lots
+        // 5. Cost Price History
+        for (const cph of costPriceHistory) {
+          await tx.runAsync(`
+            INSERT OR IGNORE INTO cost_price_history (id, product_id, cost_price, effective_from, note, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [cph.id, cph.product_id, cph.cost_price, cph.effective_from, cph.note, cph.created_by, cph.created_at]);
+        }
+
+        // 6. Inventory Lots
         for (const lot of inventoryLots) {
           await tx.runAsync(`
             INSERT OR IGNORE INTO inventory_lots (
@@ -151,7 +165,88 @@ export class PullSyncHandler {
           ]);
         }
 
-        // 6. ATOMIC CURSOR COMMIT (Scoped to authenticated account)
+        // 7. Sales Records (Multi-device synchronization)
+        for (const sale of salesRecords) {
+          const clientTxId = sale.transaction_code || `server-sale-${sale.id}`;
+          await tx.runAsync(`
+            INSERT INTO sales_records (
+              client_transaction_id, server_id, transaction_code, product_id, sale_date,
+              quantity, unit_price_at_sale, cost_price_at_sale, discount, total_revenue,
+              total_cost, profit, status, sync_status, cancel_reason, cancelled_at,
+              cancelled_by, note, created_by, created_at, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(transaction_code) DO UPDATE SET
+              server_id = excluded.server_id,
+              status = excluded.status,
+              cancel_reason = excluded.cancel_reason,
+              cancelled_at = excluded.cancelled_at,
+              cancelled_by = excluded.cancelled_by,
+              sync_status = 'SYNCED',
+              synced_at = datetime('now')
+          `, [
+            clientTxId,
+            sale.id,
+            sale.transaction_code,
+            sale.product_id,
+            sale.sale_date,
+            sale.quantity,
+            sale.unit_price_at_sale,
+            sale.cost_price_at_sale,
+            sale.discount || 0,
+            sale.total_revenue,
+            sale.total_cost,
+            sale.profit,
+            sale.status || 'COMPLETED',
+            sale.cancel_reason,
+            sale.cancelled_at,
+            sale.cancelled_by,
+            sale.note,
+            sale.created_by,
+            sale.created_at,
+          ]);
+        }
+
+        // 8. Sale Cost Allocations
+        for (const alloc of saleCostAllocations) {
+          await tx.runAsync(`
+            INSERT OR REPLACE INTO sale_cost_allocations (
+              id, sale_id, inventory_lot_id, allocated_quantity, allocated_unit_cost, total_cost, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [
+            alloc.id,
+            alloc.sale_id,
+            alloc.inventory_lot_id,
+            alloc.allocated_quantity,
+            alloc.allocated_unit_cost,
+            alloc.total_cost,
+            alloc.created_at,
+          ]);
+        }
+
+        // 9. Stock Movements
+        for (const mov of stockMovements) {
+          const clientMovId = `srv-mov-${mov.id}`;
+          await tx.runAsync(`
+            INSERT OR IGNORE INTO stock_movements (
+              client_movement_id, product_id, movement_type, quantity_change, balance_after,
+              movement_date, reference_type, reference_id, sync_status, note, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', ?, ?, ?)
+          `, [
+            clientMovId,
+            mov.product_id,
+            mov.movement_type,
+            mov.quantity_change,
+            mov.balance_after,
+            mov.movement_date,
+            mov.reference_type,
+            mov.reference_id,
+            mov.note,
+            mov.created_by,
+            mov.created_at,
+          ]);
+        }
+
+        // 10. ATOMIC CURSOR COMMIT (Scoped to authenticated account)
         const cursorKey = this.getCursorKey(userId);
         await tx.runAsync(`
           INSERT OR REPLACE INTO sync_metadata (key, value, updated_at)

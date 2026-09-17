@@ -8,6 +8,7 @@ const REFRESH_TOKEN_KEY = 'tshop_auth_refresh_token';
 const USER_KEY = 'tshop_auth_user';
 const DEVICE_ID_KEY = 'tshop_device_id';
 const SESSION_ID_KEY = 'tshop_session_id';
+const SERVER_URL_KEY = 'tshop_custom_server_url';
 
 const isWeb = Platform.OS === 'web';
 const webMemoryFallback = new Map<string, string>();
@@ -187,6 +188,18 @@ export const tokenStorage = {
     } catch (err) {
       logger.error('TokenStorage', 'Failed to delete user session', err);
     }
+  },
+
+  async getServerUrl(): Promise<string | null> {
+    return await getStorageItem(SERVER_URL_KEY);
+  },
+
+  async setServerUrl(url: string): Promise<void> {
+    await setStorageItem(SERVER_URL_KEY, url);
+  },
+
+  async removeServerUrl(): Promise<void> {
+    await deleteStorageItem(SERVER_URL_KEY);
   },
 
   async clearAuthCredentials(): Promise<void> {

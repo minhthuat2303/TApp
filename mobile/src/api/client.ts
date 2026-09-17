@@ -12,11 +12,28 @@ class ApiClient {
   constructor() {
     this.baseUrl = Config.API_BASE_URL;
     this.defaultTimeoutMs = Config.API_TIMEOUT_MS;
+    this.loadPersistedBaseUrl();
   }
 
-  setBaseUrl(url: string): void {
-    this.baseUrl = url.replace(/\/+$/, '');
-    logger.info('ApiClient', `Base URL updated: ${this.baseUrl}`);
+  async loadPersistedBaseUrl(): Promise<string> {
+    try {
+      const savedUrl = await tokenStorage.getServerUrl();
+      if (savedUrl && savedUrl.trim()) {
+        this.baseUrl = savedUrl.trim().replace(/\/+$/, '');
+        logger.info('ApiClient', `Loaded persisted Base URL: ${this.baseUrl}`);
+      }
+    } catch (e) {
+      logger.warn('ApiClient', 'Failed to load persisted Base URL', e);
+    }
+    return this.baseUrl;
+  }
+
+  async setBaseUrl(url: string, persist = true): Promise<void> {
+    this.baseUrl = url.trim().replace(/\/+$/, '');
+    if (persist) {
+      await tokenStorage.setServerUrl(this.baseUrl);
+    }
+    logger.info('ApiClient', `Base URL updated and saved: ${this.baseUrl}`);
   }
 
   getBaseUrl(): string {

@@ -52,7 +52,11 @@ export interface PullSyncData {
   product_types: any[];
   products: any[];
   price_history: any[];
+  cost_price_history?: any[];
   inventory_lots: any[];
+  sales_records?: any[];
+  sale_cost_allocations?: any[];
+  stock_movements?: any[];
   next_cursor: string;
   has_more: boolean;
   server_timestamp: string;

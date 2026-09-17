@@ -75,6 +75,36 @@ export async function GET(request: NextRequest) {
       LIMIT ?
     `, [cursorValue, limit]);
 
+    // 7. Fetch sales records (for cross-device synchronization)
+    const salesRecords = await db.query(`
+      SELECT id, transaction_code, product_id, sale_date, quantity, unit_price_at_sale, cost_price_at_sale,
+             discount, total_revenue, total_cost, profit, status, cancel_reason, cancelled_at, cancelled_by,
+             note, created_by, created_at
+      FROM sales_records
+      WHERE created_at > ?
+      ORDER BY created_at ASC, id ASC
+      LIMIT ?
+    `, [cursorValue, limit]);
+
+    // 8. Fetch sale cost allocations
+    const saleCostAllocations = await db.query(`
+      SELECT id, sale_id, inventory_lot_id, allocated_quantity, allocated_unit_cost, total_cost, created_at
+      FROM sale_cost_allocations
+      WHERE created_at > ?
+      ORDER BY created_at ASC, id ASC
+      LIMIT ?
+    `, [cursorValue, limit]);
+
+    // 9. Fetch stock movements
+    const stockMovements = await db.query(`
+      SELECT id, product_id, movement_type, quantity_change, balance_after, movement_date,
+             reference_type, reference_id, note, created_by, created_at
+      FROM stock_movements
+      WHERE created_at > ?
+      ORDER BY created_at ASC, id ASC
+      LIMIT ?
+    `, [cursorValue, limit]);
+
     // Calculate next cursor
     const nowIso = new Date().toISOString();
     let maxTimestamp = cursorValue;
@@ -94,6 +124,9 @@ export async function GET(request: NextRequest) {
     inspectMax(priceHistory, 'created_at');
     inspectMax(inventoryLots, 'created_at');
     inspectMax(costPriceHistory, 'created_at');
+    inspectMax(salesRecords, 'created_at');
+    inspectMax(saleCostAllocations, 'created_at');
+    inspectMax(stockMovements, 'created_at');
 
     const hasMore = (
       categories.length >= limit ||
@@ -101,7 +134,10 @@ export async function GET(request: NextRequest) {
       products.length >= limit ||
       priceHistory.length >= limit ||
       inventoryLots.length >= limit ||
-      costPriceHistory.length >= limit
+      costPriceHistory.length >= limit ||
+      salesRecords.length >= limit ||
+      saleCostAllocations.length >= limit ||
+      stockMovements.length >= limit
     );
 
     // If maxTimestamp didn't advance and no items changed, use nowIso
@@ -116,6 +152,9 @@ export async function GET(request: NextRequest) {
         price_history: priceHistory,
         cost_price_history: costPriceHistory,
         inventory_lots: inventoryLots,
+        sales_records: salesRecords,
+        sale_cost_allocations: saleCostAllocations,
+        stock_movements: stockMovements,
         next_cursor: nextCursor,
         has_more: hasMore,
         server_timestamp: nowIso,
