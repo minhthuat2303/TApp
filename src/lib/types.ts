@@ -29,6 +29,32 @@ export interface UserSession {
   username: string;
   full_name: string;
   role: UserRole;
+  session_id?: string;
+  device_id?: string;
+}
+
+export interface Device {
+  device_id: string;
+  user_id: number | null;
+  device_name: string | null;
+  platform: 'android' | 'ios' | 'web';
+  app_version: string | null;
+  status: 'ACTIVE' | 'REVOKED';
+  created_at: string;
+  last_seen_at: string;
+}
+
+export interface UserSessionRecord {
+  session_id: string;
+  user_id: number;
+  device_id: string;
+  refresh_token_hash: string;
+  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+  expires_at: string;
+  created_at: string;
+  last_refreshed_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
 }
 
 export interface Category {

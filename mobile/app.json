@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "T_SHOP Mobile POS",
+    "slug": "t-shop-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tshop.retail.mobile",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.tshop.retail.mobile",
+      "versionCode": 1,
+      "usesCleartextTraffic": true,
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "T_SHOP yêu cầu quyền truy cập Camera để quét mã vạch và mã QR sản phẩm tại quầy thu ngân."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3e9ef052-7e55-49e9-b191-5f05d174d37e"
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { UserSession } from '@/lib/types';
 import { useRouter, usePathname } from 'next/navigation';
+import { clearClientCache } from '@/lib/client-cache';
 
 interface AuthContextType {
   user: UserSession | null;
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, loading, pathname, router]);
 
   const login = (userData: UserSession, token: string) => {
+    clearClientCache();
     setUser(userData);
     localStorage.setItem('tshop_token', token);
     router.push('/dashboard');
@@ -64,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error(e);
     }
+    clearClientCache();
     setUser(null);
     localStorage.removeItem('tshop_token');
     router.push('/login');

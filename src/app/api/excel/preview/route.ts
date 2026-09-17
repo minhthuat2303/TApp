@@ -13,10 +13,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const entityType = (formData.get('entityType') as string) || 'products';
+    const formData = (await request.formData()) as unknown as globalThis.FormData;
+    const fileEntry = formData.get('file');
+    const entityTypeEntry = formData.get('entityType');
+    const entityType = typeof entityTypeEntry === 'string' && entityTypeEntry.trim() ? entityTypeEntry.trim() : 'products';
 
+    const file = fileEntry instanceof File ? fileEntry : null;
     if (!file) {
       return NextResponse.json(
         { success: false, error: { code: 'NO_FILE', message: 'Vui lòng chọn file Excel (.xlsx hoặc .xls).' } },

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { getUserByUsername, signToken, COOKIE_NAME } from '@/lib/auth';
+import { getUserByUsername, signToken, createMobileSession, COOKIE_NAME } from '@/lib/auth';
 import { db } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { username, password } = body;
+    const { username, password, device_id, device_name, platform, app_version } = body;
 
     if (!username || !password) {
       return NextResponse.json(
@@ -41,6 +41,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Branch: Mobile Login with Device ID vs Standard Web Login
+    if (device_id) {
+      const mobileSession = await createMobileSession(
+        user.id,
+        device_id,
+        device_name || 'Mobile Device',
+        platform || 'android',
+        app_version || '1.0.0'
+      );
+
+      // Log audit login
+      try {
+        await db.execute(`
+          INSERT INTO audit_logs (user_id, action, entity_name, entity_id, new_value_json)
+          VALUES (?, 'USER_LOGIN_MOBILE', 'DEVICES', ?, ?)
+        `, [user.id, device_id, JSON.stringify({ username: user.username, role: user.role, device_id, platform })]);
+      } catch (e) {
+        console.error('Failed to write audit log:', e);
+      }
+
+      const response = NextResponse.json({
+        success: true,
+        data: {
+          token: mobileSession.accessToken,
+          refreshToken: mobileSession.refreshToken,
+          session_id: mobileSession.sessionId,
+          device_id: mobileSession.deviceId,
+          user: {
+            id: user.id,
+            username: user.username,
+            full_name: user.full_name,
+            role: user.role,
+            session_id: mobileSession.sessionId,
+            device_id: mobileSession.deviceId,
+          },
+        },
+      });
+
+      return response;
+    }
+
+    // Standard Web Login
     const token = signToken({
       id: user.id,
       username: user.username,

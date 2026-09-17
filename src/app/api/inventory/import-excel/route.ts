@@ -13,10 +13,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const isCommit = formData.get('commit') === 'true';
-    const importDate = (formData.get('importDate') as string) || new Date().toISOString().split('T')[0];
+    const formData = (await request.formData()) as unknown as globalThis.FormData;
+    const fileEntry = formData.get('file');
+    const commitEntry = formData.get('commit');
+    const importDateEntry = formData.get('importDate');
+
+    const file = fileEntry instanceof File ? fileEntry : null;
+    const isCommit = commitEntry === 'true';
+    const importDate = typeof importDateEntry === 'string' && importDateEntry.trim() ? importDateEntry.trim() : new Date().toISOString().split('T')[0];
 
     if (!file) {
       return NextResponse.json(

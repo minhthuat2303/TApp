@@ -95,6 +95,56 @@ function getSqliteDb(): Database.Database {
   const db = new Database(dbPath);
   try { db.pragma('journal_mode = WAL'); } catch { try { db.pragma('journal_mode = DELETE'); } catch {} }
   try { db.pragma('foreign_keys = ON'); db.pragma('busy_timeout = 10000'); } catch {}
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS processed_sync_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client_transaction_id TEXT UNIQUE NOT NULL,
+        entity_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        server_id INTEGER,
+        result_json TEXT,
+        payload_hash TEXT,
+        payload_json TEXT,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        device_id TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_processed_sync_tx_id ON processed_sync_transactions(client_transaction_id);
+
+      CREATE TABLE IF NOT EXISTS devices (
+        device_id TEXT PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        device_name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        app_version TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
+
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        session_id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+        refresh_token_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'ACTIVE',
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_refreshed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        revoked_at DATETIME,
+        revoked_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(device_id);
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_token ON user_sessions(refresh_token_hash);
+    `);
+    try { db.exec('ALTER TABLE processed_sync_transactions ADD COLUMN payload_hash TEXT;'); } catch {}
+    try { db.exec('ALTER TABLE processed_sync_transactions ADD COLUMN payload_json TEXT;'); } catch {}
+    try { db.exec('ALTER TABLE processed_sync_transactions ADD COLUMN user_id INTEGER;'); } catch {}
+    try { db.exec('ALTER TABLE processed_sync_transactions ADD COLUMN device_id TEXT;'); } catch {}
+  } catch {}
 
   global.__sqlite_db__ = db;
   return db;
@@ -296,6 +346,44 @@ export async function ensurePgSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS processed_sync_transactions (
+          id SERIAL PRIMARY KEY,
+          client_transaction_id VARCHAR(100) UNIQUE NOT NULL,
+          entity_type VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          server_id INTEGER,
+          result_json TEXT,
+          payload_hash VARCHAR(64),
+          payload_json TEXT,
+          user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          device_id VARCHAR(100),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS devices (
+          device_id VARCHAR(100) PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          device_name VARCHAR(255) NOT NULL,
+          platform VARCHAR(50) NOT NULL,
+          app_version VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'REVOKED')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS user_sessions (
+          session_id VARCHAR(100) PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          device_id VARCHAR(100) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+          refresh_token_hash VARCHAR(128) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'REVOKED', 'EXPIRED')),
+          expires_at TIMESTAMPTZ NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_refreshed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          revoked_at TIMESTAMPTZ,
+          revoked_reason TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
         CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
         CREATE INDEX IF NOT EXISTS idx_products_cat_type ON products(category_id, product_type_id);
@@ -311,7 +399,29 @@ export async function ensurePgSchema() {
         CREATE INDEX IF NOT EXISTS idx_sale_alloc_sale ON sale_cost_allocations(sale_id);
         CREATE INDEX IF NOT EXISTS idx_sale_alloc_lot ON sale_cost_allocations(inventory_lot_id);
         CREATE INDEX IF NOT EXISTS idx_audit_logs_user_date ON audit_logs(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_processed_sync_tx_id ON processed_sync_transactions(client_transaction_id);
+        CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(device_id);
+        CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_token ON user_sessions(refresh_token_hash);
       `);
+
+      // Safe column additions for existing PostgreSQL tables
+      try {
+        await client.query(`
+          DO $$ 
+          BEGIN 
+            BEGIN
+              ALTER TABLE processed_sync_transactions ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+              ALTER TABLE processed_sync_transactions ADD COLUMN IF NOT EXISTS device_id VARCHAR(100);
+            EXCEPTION WHEN others THEN NULL;
+            END;
+          END $$;
+        `);
+      } catch {}
 
       const userRes = await client.query('SELECT COUNT(*) as count FROM users');
       if (parseInt(userRes.rows[0].count, 10) === 0) {

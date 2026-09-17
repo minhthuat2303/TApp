@@ -38,6 +38,7 @@ yarn-error.log*
 
 # Temporary & Local Data
 .tempmediaStorage/
+*.apk
 scratch/
 *.db-shm
 *.db-wal
