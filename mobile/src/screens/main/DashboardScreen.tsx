@@ -77,7 +77,7 @@ export const DashboardScreen: React.FC = () => {
       setTrendData(trend);
       setTodaySummary(todaySum);
       setSlowCount(slowList.length);
-      setLowStockItems(lowList);
+      setLowStockItems((lowList || []).filter(item => item.current_stock <= item.min_stock_alert));
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
@@ -441,7 +441,7 @@ export const DashboardScreen: React.FC = () => {
                       SẢN PHẨM TỒN KHO THẤP ({lowStockItems.length})
                     </Text>
                     <Text style={{ fontSize: 11, color: '#B91C1C' }}>
-                      Các mặt hàng có số lượng nhỏ hơn ngưỡng tối thiểu (Tồn kho &lt; Ngưỡng)
+                      Các mặt hàng chạm hoặc dưới ngưỡng tối thiểu (Tồn kho ≤ Ngưỡng)
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => navigation.navigate('Inventory')}>

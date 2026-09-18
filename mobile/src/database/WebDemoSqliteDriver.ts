@@ -2270,6 +2270,31 @@ export class WebDemoSqliteDriver implements IDatabaseDriver {
         }) as any;
       }
 
+      // 3e. Specific query for getLowStockProducts: filters products where current_stock <= min_stock_alert
+      if (upper.includes('CURRENT_STOCK <= MIN_STOCK_ALERT') || upper.includes('CURRENT_STOCK < MIN_STOCK_ALERT')) {
+        const strict = upper.includes('CURRENT_STOCK < MIN_STOCK_ALERT') && !upper.includes('CURRENT_STOCK <= MIN_STOCK_ALERT');
+        const filtered = this.products
+          .filter(p => {
+            if (p.status !== 'ACTIVE') return false;
+            return strict 
+              ? (p.current_stock < p.min_stock_alert) 
+              : (p.current_stock <= p.min_stock_alert);
+          })
+          .sort((a, b) => a.current_stock - b.current_stock);
+
+        const limitVal = params && params.length > 0 && typeof params[params.length - 1] === 'number'
+          ? Number(params[params.length - 1])
+          : 10;
+
+        return filtered.slice(0, limitVal).map(p => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          current_stock: p.current_stock,
+          min_stock_alert: p.min_stock_alert,
+        })) as any;
+      }
+
       let list = this.products.map((p) => {
         const cat = this.categories.find(c => c.id === p.category_id);
         const pt = this.productTypes.find(t => t.id === p.product_type_id);
@@ -2834,7 +2859,7 @@ export class WebDemoSqliteDriver implements IDatabaseDriver {
     // 2. Stock summary query
     if (upper.includes('FROM PRODUCTS') && upper.includes('SUM(CURRENT_STOCK)')) {
       const totalStock = this.products.reduce((s, it) => s + (it.current_stock || 0), 0);
-      const lowStock = this.products.filter(p => p.current_stock < p.min_stock_alert).length;
+      const lowStock = this.products.filter(p => (p.status || 'ACTIVE') === 'ACTIVE' && p.current_stock <= p.min_stock_alert).length;
       const totalVal = this.products.reduce((s, it) => s + (it.current_stock * it.current_cost_price), 0);
 
       return {

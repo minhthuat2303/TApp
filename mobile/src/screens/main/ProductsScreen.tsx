@@ -613,7 +613,7 @@ export const ProductsScreen: React.FC = () => {
                           <Text 
                             style={[
                               styles.stockValue,
-                              item.current_stock < item.min_stock_alert && styles.stockAlert
+                              item.current_stock <= item.min_stock_alert && styles.stockAlert
                             ]}
                           >
                             {item.current_stock} cái
@@ -663,7 +663,7 @@ export const ProductsScreen: React.FC = () => {
                           <Text 
                             style={[
                               { fontSize: 13, fontWeight: '700', color: '#16A34A' },
-                              item.current_stock < item.min_stock_alert && { color: Colors.danger }
+                              item.current_stock <= item.min_stock_alert && { color: Colors.danger }
                             ]}
                           >
                             {item.current_stock}

@@ -485,7 +485,7 @@ export default function ProductsPage() {
                       <td className="text-right">
                         <span style={{
                           fontWeight: 700,
-                          color: p.current_stock < p.min_stock_alert ? '#dc2626' : '#059669',
+                          color: p.current_stock <= p.min_stock_alert ? '#dc2626' : '#059669',
                         }}>
                           {p.current_stock}
                         </span>
