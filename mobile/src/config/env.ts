@@ -24,9 +24,11 @@ function getDevelopmentHost(): string {
 
 const ENV: AppEnvironment = __DEV__ ? 'development' : 'production';
 
+export const PRODUCTION_SERVER_URL = 'https://t-app-two.vercel.app';
+
 export const Config = {
   APP_ENV: ENV,
-  API_BASE_URL: process.env.EXPO_PUBLIC_API_URL || getDevelopmentHost(),
+  API_BASE_URL: process.env.EXPO_PUBLIC_API_URL || PRODUCTION_SERVER_URL,
   API_TIMEOUT_MS: 15000,
   APP_NAME: 'T_SHOP Mobile POS',
   APP_VERSION: '1.0.0',

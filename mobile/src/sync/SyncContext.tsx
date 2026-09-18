@@ -35,8 +35,9 @@ export const SyncProvider: React.FC<SyncProviderProps> = ({ children, engine = s
   }, [engine]);
 
   useEffect(() => {
-    // Initial status refresh
+    // Initial status refresh and auto-sync from Supabase Cloud
     refresh();
+    engine.sync().catch(() => {});
 
     // Subscribe to engine state notifications
     const unsubscribe = engine.addListener((status, stats) => {

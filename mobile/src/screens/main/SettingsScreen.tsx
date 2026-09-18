@@ -17,7 +17,6 @@ import Config from '../../config/env';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
-import { Input } from '../../components/common/Input';
 import NetworkBanner from '../../components/common/NetworkBanner';
 import { Colors } from '../../constants/colors';
 import { Spacing, Typography, BorderRadius } from '../../constants/layout';
@@ -31,16 +30,7 @@ export const SettingsScreen: React.FC = () => {
   const { isOnline, isServerReachable, recheckServer } = useNetwork();
   const { syncStatus, pendingCount, conflictCount, triggerSync } = useSync();
 
-  // Server URL State
-  const [serverUrlInput, setServerUrlInput] = useState<string>(apiClient.getBaseUrl());
-  const [isTestingServer, setIsTestingServer] = useState<boolean>(false);
-  const [isSavingServer, setIsSavingServer] = useState<boolean>(false);
 
-  useEffect(() => {
-    apiClient.loadPersistedBaseUrl().then((url) => {
-      if (url) setServerUrlInput(url);
-    });
-  }, []);
 
   // Modal States
   const [healthModalVisible, setHealthModalVisible] = useState(false);
@@ -116,52 +106,7 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleTestServerConnection = async () => {
-    const url = serverUrlInput.trim().replace(/\/+$/, '');
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-      Alert.alert('Lỗi', 'Vui lòng nhập địa chỉ máy chủ hợp lệ (bắt đầu bằng http:// hoặc https://).');
-      return;
-    }
 
-    setIsTestingServer(true);
-    try {
-      const resp = await fetch(`${url}/api/sync/health`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-      });
-      if (resp.ok) {
-        Alert.alert('Thành công', 'Kết nối tới máy chủ Vercel thành công!');
-      } else {
-        Alert.alert('Cảnh báo', `Máy chủ phản hồi mã lỗi: ${resp.status}`);
-      }
-    } catch (e: any) {
-      Alert.alert('Lỗi kết nối', e?.message || 'Không thể kết nối tới máy chủ. Vui lòng kiểm tra lại đường link.');
-    } finally {
-      setIsTestingServer(false);
-    }
-  };
-
-  const handleSaveServerUrl = async () => {
-    const url = serverUrlInput.trim().replace(/\/+$/, '');
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
-      Alert.alert('Lỗi', 'Vui lòng nhập địa chỉ máy chủ hợp lệ (bắt đầu bằng http:// hoặc https://).');
-      return;
-    }
-
-    setIsSavingServer(true);
-    try {
-      await apiClient.setBaseUrl(url, true);
-      await recheckServer();
-      if (triggerSync) {
-        await triggerSync();
-      }
-      Alert.alert('Đã lưu máy chủ', 'Đã lưu cấu hình máy chủ thành công và kích hoạt đồng bộ dữ liệu ngay lập tức!');
-    } catch (e: any) {
-      Alert.alert('Lỗi', e?.message || 'Không thể lưu địa chỉ máy chủ.');
-    } finally {
-      setIsSavingServer(false);
-    }
-  };
 
   const handleLogout = async () => {
     const result = await logout(false);
@@ -294,14 +239,19 @@ export const SettingsScreen: React.FC = () => {
           </View>
 
           <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Máy chủ Backend API:</Text>
-            <Text style={styles.settingValue}>{Config.API_BASE_URL}</Text>
+            <Text style={styles.settingLabel}>Máy chủ Cloud (Vercel):</Text>
+            <Text style={[styles.settingValue, { color: Colors.primary, fontWeight: '700' }]}>{apiClient.getBaseUrl()}</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Cơ sở dữ liệu:</Text>
+            <Text style={styles.settingValue}>Supabase PostgreSQL (Cloud)</Text>
           </View>
 
           <View style={styles.settingRow}>
             <Text style={styles.settingLabel}>Trạng thái kết nối Server:</Text>
             <Badge 
-              label={isServerReachable ? 'Sẵn sàng kết nối' : 'Không phản hồi'} 
+              label={isServerReachable ? 'Đang hoạt động' : 'Đang kết nối lại'} 
               variant={isServerReachable ? 'success' : 'danger'} 
             />
           </View>
@@ -338,43 +288,6 @@ export const SettingsScreen: React.FC = () => {
           <Text style={styles.syncNote}>
             Tất cả mã xác thực và token đăng nhập được mã hóa an toàn trong phần cứng thiết bị (SecureStore). Không hiển thị bí mật hoặc token ra giao diện.
           </Text>
-        </Card>
-
-        {/* Server Connection URL Configuration */}
-        <Card>
-          <Text style={styles.cardSectionTitle}>Cấu hình kết nối Máy chủ (Server Cloud)</Text>
-          <Text style={{ fontSize: 13, color: Colors.textMuted, marginBottom: Spacing.sm }}>
-            Nhập địa chỉ máy chủ Vercel (ví dụ: https://t-app-xyz.vercel.app) để tất cả điện thoại cùng đồng bộ chung dữ liệu doanh thu, kho và đơn hàng với nhau.
-          </Text>
-
-          <Input
-            label="Địa chỉ máy chủ (Server URL)"
-            value={serverUrlInput}
-            onChangeText={setServerUrlInput}
-            placeholder="https://tapp.vercel.app"
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
-
-          <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
-            <Button
-              title="🔍 Thử kết nối"
-              onPress={handleTestServerConnection}
-              variant="outline"
-              size="sm"
-              loading={isTestingServer}
-              style={{ flex: 1 }}
-            />
-            <Button
-              title="💾 Lưu & Đồng bộ"
-              onPress={handleSaveServerUrl}
-              variant="primary"
-              size="sm"
-              loading={isSavingServer}
-              style={{ flex: 1 }}
-            />
-          </View>
         </Card>
 
         {/* Server & Network Actions */}

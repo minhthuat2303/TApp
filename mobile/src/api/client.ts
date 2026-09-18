@@ -18,12 +18,23 @@ class ApiClient {
   async loadPersistedBaseUrl(): Promise<string> {
     try {
       const savedUrl = await tokenStorage.getServerUrl();
-      if (savedUrl && savedUrl.trim()) {
+      const isLegacyUrl = !savedUrl || 
+        savedUrl.includes('10.0.2.2') || 
+        savedUrl.includes('localhost') || 
+        savedUrl.includes('api.tshop.retail') ||
+        !savedUrl.startsWith('http');
+
+      if (isLegacyUrl) {
+        this.baseUrl = Config.API_BASE_URL;
+        await tokenStorage.setServerUrl(this.baseUrl);
+        logger.info('ApiClient', `Auto-migrated Base URL to official production server: ${this.baseUrl}`);
+      } else {
         this.baseUrl = savedUrl.trim().replace(/\/+$/, '');
         logger.info('ApiClient', `Loaded persisted Base URL: ${this.baseUrl}`);
       }
     } catch (e) {
       logger.warn('ApiClient', 'Failed to load persisted Base URL', e);
+      this.baseUrl = Config.API_BASE_URL;
     }
     return this.baseUrl;
   }
