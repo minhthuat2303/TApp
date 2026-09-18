@@ -353,7 +353,7 @@ export class AnalyticsService {
         this.db.queryOne<any>(`
           SELECT 
             COALESCE(SUM(current_stock), 0) as total_stock,
-            COALESCE(SUM(CASE WHEN current_stock <= min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
+            COALESCE(SUM(CASE WHEN current_stock < min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
           FROM products
           WHERE status = 'ACTIVE'
         `),
@@ -1541,7 +1541,7 @@ export class AnalyticsService {
         this.db.queryOne<any>(`
           SELECT 
             COALESCE(SUM(current_stock), 0) as total_stock,
-            COALESCE(SUM(CASE WHEN current_stock <= min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
+            COALESCE(SUM(CASE WHEN current_stock < min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
           FROM products
           WHERE status = 'ACTIVE'
         `),
@@ -1794,11 +1794,34 @@ export class AnalyticsService {
     current_stock: number;
     min_stock_alert: number;
   }>> {
+    // 1. Direct Online Fetch from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.INVENTORY, {
+        params: { lowStock: 'true' }
+      });
+      const items = res.data?.data?.items;
+      if (Array.isArray(items)) {
+        return items
+          .filter((p: any) => Number(p.current_stock || 0) < Number(p.min_stock_alert || 0))
+          .slice(0, limit)
+          .map((p: any) => ({
+            id: Number(p.id),
+            name: String(p.name),
+            sku: String(p.sku),
+            current_stock: Number(p.current_stock || 0),
+            min_stock_alert: Number(p.min_stock_alert || 0),
+          }));
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud low stock products, falling back to local SQLite', err);
+    }
+
+    // 2. Fallback to Local SQLite
     try {
       const sql = `
         SELECT id, name, sku, current_stock, min_stock_alert
         FROM products
-        WHERE status = 'ACTIVE' AND current_stock <= min_stock_alert
+        WHERE status = 'ACTIVE' AND current_stock < min_stock_alert
         ORDER BY current_stock ASC
         LIMIT ?
       `;

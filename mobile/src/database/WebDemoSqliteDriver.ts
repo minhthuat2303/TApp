@@ -2834,7 +2834,7 @@ export class WebDemoSqliteDriver implements IDatabaseDriver {
     // 2. Stock summary query
     if (upper.includes('FROM PRODUCTS') && upper.includes('SUM(CURRENT_STOCK)')) {
       const totalStock = this.products.reduce((s, it) => s + (it.current_stock || 0), 0);
-      const lowStock = this.products.filter(p => p.current_stock <= p.min_stock_alert).length;
+      const lowStock = this.products.filter(p => p.current_stock < p.min_stock_alert).length;
       const totalVal = this.products.reduce((s, it) => s + (it.current_stock * it.current_cost_price), 0);
 
       return {

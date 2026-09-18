@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (lowStockOnly) {
-      whereClauses.push(`p.current_stock <= p.min_stock_alert`);
+      whereClauses.push(`p.current_stock < p.min_stock_alert`);
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
         COUNT(p.id) as total_products,
         COALESCE(SUM(p.current_stock), 0) as total_stock,
         COALESCE(SUM(p.current_stock * p.current_cost_price), 0) as total_stock_valuation,
-        COALESCE(SUM(CASE WHEN p.current_stock <= p.min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
+        COALESCE(SUM(CASE WHEN p.current_stock < p.min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
       FROM products p
       ${whereSql}
     `, params);
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         (p.current_stock * p.current_cost_price) as stock_valuation,
         c.name as category_name,
         pt.name as product_type_name,
-        CASE WHEN p.current_stock <= p.min_stock_alert THEN 1 ELSE 0 END as is_low_stock
+        CASE WHEN p.current_stock < p.min_stock_alert THEN 1 ELSE 0 END as is_low_stock
       FROM products p
       JOIN categories c ON c.id = p.category_id
       JOIN product_types pt ON pt.id = p.product_type_id

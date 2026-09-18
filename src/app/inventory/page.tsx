@@ -317,7 +317,7 @@ export default function InventoryOverviewPage() {
                         <td className="text-right">
                           <span style={{
                             fontWeight: 700,
-                            color: item.current_stock <= item.min_stock_alert ? '#dc2626' : '#0f172a',
+                            color: item.current_stock < item.min_stock_alert ? '#dc2626' : '#0f172a',
                           }}>
                             {item.current_stock}
                           </span>
@@ -332,7 +332,7 @@ export default function InventoryOverviewPage() {
                           {formatVND(item.stock_valuation)}
                         </td>
                         <td className="text-center">
-                          {item.current_stock <= item.min_stock_alert ? (
+                          {item.current_stock < item.min_stock_alert ? (
                             <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                               <AlertTriangle size={11} /> Cần nhập
                             </span>

@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
       db.queryOne<any>(`
         SELECT 
           COALESCE(SUM(p.current_stock), 0) as total_stock,
-          COALESCE(SUM(CASE WHEN p.current_stock <= p.min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
+          COALESCE(SUM(CASE WHEN p.current_stock < p.min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
         FROM products p
         WHERE ${prodWhere.join(' AND ')}
       `, prodParams),

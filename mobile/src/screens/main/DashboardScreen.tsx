@@ -168,59 +168,7 @@ export const DashboardScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* System & Sync Status Panel */}
-        <Card style={[styles.syncCard, !isOnline && { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' }]}>
-          <View style={styles.syncCardHeader}>
-            <Text style={styles.syncIcon}>{!isOnline ? '📴' : isSyncing ? '⏳' : conflictCount > 0 ? '⚠️' : '🔄'}</Text>
-            <View style={{ flex: 1, marginLeft: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <Text style={styles.syncTitle}>
-                  {isOnline ? 'Trạng thái đồng bộ' : 'Chế độ ngoại tuyến (Offline)'}
-                </Text>
-                {getSyncBadge()}
-              </View>
-              <Text style={styles.syncSubtitle}>
-                {!isOnline
-                  ? `Đang làm việc ngoại tuyến — ${pendingCount > 0 ? `${pendingCount} giao dịch chờ đồng bộ` : 'Dữ liệu cục bộ an toàn'}`
-                  : isSyncing
-                  ? 'Đang gửi Outbox lên máy chủ và cập nhật dữ liệu...'
-                  : conflictCount > 0
-                  ? `Có ${conflictCount} xung đột cần đối soát!`
-                  : pendingCount > 0
-                  ? `${pendingCount} giao dịch trong Outbox đang chờ gửi.`
-                  : `Đã đồng bộ lúc ${lastSyncTime}`}
-              </Text>
-              {(pendingCount > 0 || !isOnline) && (
-                <Text style={styles.syncNotice}>
-                  ℹ️ Lưu ý: Dữ liệu đã lưu an toàn trên máy (Local) nhưng CHƯA đồng bộ lên máy chủ (Server Synced).
-                </Text>
-              )}
-              {syncFeedback && (
-                <Text style={[styles.syncFeedbackText, syncFeedback.includes('❌') && { color: Colors.danger }]}>
-                  {syncFeedback}
-                </Text>
-              )}
-            </View>
-            <View style={{ gap: 6 }}>
-              <Button
-                title={isSyncing ? 'Đang gửi...' : 'Đồng bộ'}
-                onPress={handleSyncNow}
-                variant="secondary"
-                size="sm"
-                loading={isSyncing}
-                disabled={isSyncing || !isOnline}
-              />
-              {conflictCount > 0 && (
-                <Button
-                  title="Xử lý lỗi"
-                  onPress={() => navigation.navigate('ConflictCenter')}
-                  variant="danger"
-                  size="sm"
-                />
-              )}
-            </View>
-          </View>
-        </Card>
+        {/* System & Sync Status Panel hidden per user request */}
 
         {/* Task Center: CẦN XỬ LÝ (Section 7) */}
         {(pendingCount > 0 || conflictCount > 0 || (summary && summary.lowStockCount > 0) || slowCount > 0) && (
@@ -493,7 +441,7 @@ export const DashboardScreen: React.FC = () => {
                       SẢN PHẨM TỒN KHO THẤP ({lowStockItems.length})
                     </Text>
                     <Text style={{ fontSize: 11, color: '#B91C1C' }}>
-                      Các mặt hàng chạm hoặc dưới ngưỡng tối thiểu (Stock ≤ Ngưỡng)
+                      Các mặt hàng có số lượng nhỏ hơn ngưỡng tối thiểu (Tồn kho &lt; Ngưỡng)
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => navigation.navigate('Inventory')}>

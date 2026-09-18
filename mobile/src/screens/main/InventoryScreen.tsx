@@ -499,7 +499,7 @@ export const InventoryScreen: React.FC = () => {
     const effectiveStock = status && typeof status.effectiveStock === 'number' && !isNaN(status.effectiveStock)
       ? status.effectiveStock
       : (typeof p.current_stock === 'number' && !isNaN(p.current_stock) ? p.current_stock : 0);
-    const matchesLowStock = !lowStockOnly || effectiveStock <= p.min_stock_alert;
+    const matchesLowStock = !lowStockOnly || effectiveStock < p.min_stock_alert;
     return matchesSearch && matchesLowStock;
   });
 
@@ -719,7 +719,7 @@ export const InventoryScreen: React.FC = () => {
                     const effectiveStock = status && typeof status.effectiveStock === 'number' && !isNaN(status.effectiveStock)
                       ? status.effectiveStock
                       : (typeof item.current_stock === 'number' && !isNaN(item.current_stock) ? item.current_stock : 0);
-                    const isLow = effectiveStock <= item.min_stock_alert;
+                    const isLow = effectiveStock < item.min_stock_alert;
 
                     return viewMode === 'detail' ? (
                       <Card key={item.id} style={styles.itemCard}>
@@ -734,7 +734,7 @@ export const InventoryScreen: React.FC = () => {
                           </View>
                           <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                             <Badge
-                              label={isLow ? `Tồn ít (≤${item.min_stock_alert})` : 'Đủ hàng'}
+                              label={isLow ? `Tồn ít (<${item.min_stock_alert})` : 'Đủ hàng'}
                               variant={isLow ? 'warning' : 'success'}
                             />
                             <TouchableOpacity

@@ -190,7 +190,7 @@ export class SqliteInventoryDataSource {
           COUNT(id) as total_products,
           COALESCE(SUM(current_stock), 0) as total_stock,
           COALESCE(SUM(current_stock * current_cost_price), 0) as total_valuation,
-          COALESCE(SUM(CASE WHEN current_stock <= min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
+          COALESCE(SUM(CASE WHEN current_stock < min_stock_alert THEN 1 ELSE 0 END), 0) as low_stock_count
         FROM products
         WHERE status = 'ACTIVE'
       `);
