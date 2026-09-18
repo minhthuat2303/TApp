@@ -204,6 +204,35 @@ export class PullSyncHandler {
             sale.created_by,
             sale.created_at,
           ]);
+
+          // Also sync into sales_orders so order history on other devices matches 100%
+          const orderTotalAmount = Number(sale.total_revenue) + Number(sale.discount || 0);
+          await tx.runAsync(`
+            INSERT INTO sales_orders (
+              client_order_id, order_code, sale_date, total_amount, total_discount,
+              final_amount, total_items, payment_method, cash_received, cash_change,
+              status, sync_status, note, created_by, created_at, synced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CASH', ?, 0, ?, 'SYNCED', ?, ?, ?, datetime('now'))
+            ON CONFLICT(order_code) DO UPDATE SET
+              status = excluded.status,
+              total_discount = excluded.total_discount,
+              final_amount = excluded.final_amount,
+              sync_status = 'SYNCED',
+              synced_at = datetime('now')
+          `, [
+            clientTxId,
+            sale.transaction_code,
+            sale.sale_date,
+            orderTotalAmount,
+            sale.discount || 0,
+            sale.total_revenue,
+            sale.quantity,
+            sale.total_revenue,
+            sale.status || 'COMPLETED',
+            sale.note,
+            sale.created_by,
+            sale.created_at,
+          ]);
         }
 
         // 8. Sale Cost Allocations

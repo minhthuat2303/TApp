@@ -18,10 +18,12 @@ class ProductRemoteDataSource implements IRemoteDataSource<Product> {
   }
 }
 
-// 2. Product Repository (Offline-First Facade)
+// 2. Product Repository (Direct Online Mode with RAM & SQLite Caching)
 export class ProductRepository implements IRepository<Product> {
   private localSource: SqliteProductDataSource;
   private remoteSource: IRemoteDataSource<Product>;
+  private memoryCache: { data: Product[]; timestamp: number } | null = null;
+  private readonly CACHE_TTL_MS = 20000; // 20s cache TTL for instant UI response
 
   constructor(
     local?: SqliteProductDataSource,
@@ -35,61 +37,94 @@ export class ProductRepository implements IRepository<Product> {
     this.localSource = local;
   }
 
+  clearMemoryCache(): void {
+    this.memoryCache = null;
+  }
+
   async getAll(forceRemote = false): Promise<Product[]> {
-    // 1. Try local SQLite first if not forced remote
-    if (!forceRemote) {
-      const localData = await this.localSource.getAll();
-      if (localData.length > 0) {
-        logger.debug('ProductRepository', `SQLite hit: loaded ${localData.length} products locally`);
-        return localData;
-      }
+    const now = Date.now();
+
+    // 1. Instant Cache Return (0ms latency for smooth UX)
+    if (!forceRemote && this.memoryCache && (now - this.memoryCache.timestamp < this.CACHE_TTL_MS)) {
+      return this.memoryCache.data;
     }
 
-    // 2. Fetch from remote API and refresh local SQLite cache
+    // 2. Direct Online Fetch from Supabase Cloud API
     try {
-      logger.debug('ProductRepository', 'Fetching products from remote API...');
-      const remoteData = await this.remoteSource.getAll({ limit: 100 });
-      if (remoteData.length > 0) {
-        await this.localSource.saveBatch(remoteData);
+      logger.debug('ProductRepository', 'Fetching latest products from Supabase Cloud API...');
+      const remoteData = await this.remoteSource.getAll({ limit: 500 });
+      if (remoteData && remoteData.length > 0) {
+        this.memoryCache = { data: remoteData, timestamp: now };
+        // Asynchronously persist to SQLite cache without blocking caller
+        this.localSource.saveBatch(remoteData).catch((err) => {
+          logger.warn('ProductRepository', 'Failed to update local SQLite product cache', err);
+        });
+        return remoteData;
       }
-      return remoteData;
     } catch (err) {
-      logger.warn('ProductRepository', 'Failed to fetch remote products, falling back to local SQLite', err);
-      return await this.localSource.getAll();
+      logger.warn('ProductRepository', 'Failed to fetch remote products from Supabase, falling back to local SQLite', err);
     }
+
+    // 3. Fallback to Local SQLite (Offline Mode)
+    const localData = await this.localSource.getAll();
+    if (localData.length > 0) {
+      this.memoryCache = { data: localData, timestamp: now };
+    }
+    return localData;
   }
 
   async getById(id: number | string, forceRemote = false): Promise<Product | null> {
-    if (!forceRemote) {
-      const localItem = await this.localSource.getById(id);
-      if (localItem) return localItem;
+    if (!forceRemote && this.memoryCache) {
+      const found = this.memoryCache.data.find((p) => p.id === Number(id));
+      if (found) return found;
     }
 
     try {
       const remoteItem = await this.remoteSource.getById(id);
       if (remoteItem) {
-        await this.localSource.save(remoteItem);
+        this.localSource.save(remoteItem).catch(() => {});
+        return remoteItem;
       }
-      return remoteItem;
     } catch (err) {
       logger.warn('ProductRepository', `Failed to fetch remote product ${id}`, err);
-      return await this.localSource.getById(id);
     }
+
+    return await this.localSource.getById(id);
   }
 
   async search(keyword: string): Promise<Product[]> {
     if (!keyword.trim()) {
       return await this.getAll();
     }
+    // Search in RAM cache if available for instant sub-millisecond search
+    if (this.memoryCache && this.memoryCache.data.length > 0) {
+      const trimmed = keyword.trim().toLowerCase();
+      const { matchesVietnameseSearch } = await import('../utils/vietnameseUtils');
+      return this.memoryCache.data.filter(
+        (p) =>
+          matchesVietnameseSearch(p.name, trimmed) ||
+          matchesVietnameseSearch(p.sku, trimmed)
+      );
+    }
     return await this.localSource.search(keyword);
   }
 
   async getByBarcode(barcode: string): Promise<Product | null> {
     if (!barcode.trim()) return null;
+    if (this.memoryCache && this.memoryCache.data.length > 0) {
+      const trimmed = barcode.trim().toLowerCase();
+      const found = this.memoryCache.data.find(
+        (p) => p.sku.toLowerCase() === trimmed || String(p.id) === trimmed
+      );
+      if (found) return found;
+    }
     return await this.localSource.getByBarcode(barcode);
   }
 
   async getByCategory(categoryId: number): Promise<Product[]> {
+    if (this.memoryCache && this.memoryCache.data.length > 0) {
+      return this.memoryCache.data.filter((p) => p.category_id === categoryId);
+    }
     return await this.localSource.getByCategory(categoryId);
   }
 
@@ -111,6 +146,24 @@ export class ProductRepository implements IRepository<Product> {
     },
     userId = 1
   ): Promise<Product | null> {
+    this.clearMemoryCache();
+
+    // 1. Try Direct Online Update on Supabase Server
+    try {
+      const res = await apiClient.put<Product>(Endpoints.PRODUCT_DETAIL(id), {
+        ...input,
+        selling_price: input.selling_price,
+      });
+      if (res.data) {
+        const updatedRemote = res.data;
+        await this.localSource.save(updatedRemote);
+        return updatedRemote;
+      }
+    } catch (err) {
+      logger.warn('ProductRepository', `Direct server product update failed for ${id}, enqueuing to Outbox`, err);
+    }
+
+    // 2. Offline Fallback: Local SQLite + Outbox
     const updated = await this.localSource.update(id, input, userId);
     if (!updated) return null;
 
@@ -150,6 +203,31 @@ export class ProductRepository implements IRepository<Product> {
     },
     userId = 1
   ): Promise<Product> {
+    this.clearMemoryCache();
+
+    // 1. Try Direct Online Creation on Supabase Server
+    try {
+      const res = await apiClient.post<Product>(Endpoints.PRODUCTS, {
+        sku: input.sku.trim().toUpperCase(),
+        name: input.name.trim(),
+        category_id: input.category_id,
+        product_type_id: input.product_type_id,
+        current_selling_price: input.selling_price,
+        current_cost_price: input.cost_price || 0,
+        min_stock_alert: input.min_stock_alert || 5,
+        description: input.description?.trim() || null,
+      });
+
+      if (res.data) {
+        const createdRemote = res.data;
+        await this.localSource.save(createdRemote);
+        return createdRemote;
+      }
+    } catch (err) {
+      logger.warn('ProductRepository', 'Direct server product creation failed, enqueuing to Outbox', err);
+    }
+
+    // 2. Offline Fallback: Local SQLite + Outbox
     const created = await this.localSource.create(input, userId);
 
     const { outboxService } = await import('../services/OutboxService');

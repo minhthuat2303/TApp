@@ -6,6 +6,7 @@ export const Endpoints = {
 
   // Master Data
   CATEGORIES: '/api/categories',
+  CATEGORY_DETAIL: (id: number | string) => `/api/categories/${id}`,
   PRODUCT_TYPES: '/api/product-types',
   PRODUCTS: '/api/products',
   PRODUCT_DETAIL: (id: number | string) => `/api/products/${id}`,
@@ -14,6 +15,7 @@ export const Endpoints = {
 
   // Sales
   SALES: '/api/sales',
+  SALES_DETAIL: (id: number | string) => `/api/sales/${id}`,
   SALES_RESOLVE_PRICE: '/api/sales/resolve-price',
   SALES_CANCEL: (id: number | string) => `/api/sales/${id}/cancel`,
 
@@ -27,6 +29,8 @@ export const Endpoints = {
   // Dashboard & Reports
   DASHBOARD_SUMMARY: '/api/dashboard/summary',
   DASHBOARD_AGGREGATE: '/api/dashboard/aggregate-table',
+  DASHBOARD_CHART_REVENUE_PROFIT: '/api/dashboard/charts/revenue-profit',
+  DASHBOARD_CHART_INVENTORY: '/api/dashboard/charts/inventory',
   REPORTS_SALES_BY_DATE: '/api/reports/sales-by-date',
   REPORTS_TOP_SELLING: '/api/reports/top-selling',
 

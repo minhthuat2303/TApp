@@ -2,6 +2,8 @@
 // Pure offline SQLite aggregation engine matching Web business logic 100%
 
 import databaseService, { DatabaseService } from '../database/DatabaseService';
+import apiClient from '../api/client';
+import Endpoints from '../api/endpoints';
 import { 
   DatePeriod, 
   DashboardSummaryData, 
@@ -29,9 +31,19 @@ import logger from '../utils/logger';
 
 export class AnalyticsService {
   private db: DatabaseService;
+  private summaryCache = new Map<string, { data: DashboardSummaryData; timestamp: number }>();
+  private trendCache = new Map<string, { data: RevenueProfitTrendItem[]; timestamp: number }>();
+  private topSellingCache = new Map<string, { data: TopSellingItem[]; timestamp: number }>();
+  private readonly CACHE_TTL_MS = 15000; // 15s cache TTL for instant 0ms response on UI tab switching
 
   constructor(db?: DatabaseService) {
     this.db = db || databaseService;
+  }
+
+  clearCache(): void {
+    this.summaryCache.clear();
+    this.trendCache.clear();
+    this.topSellingCache.clear();
   }
 
   // Resolve ISO date strings (YYYY-MM-DD) for selected period
@@ -265,8 +277,6 @@ export class AnalyticsService {
     const prevEnd = new Date(currentStart);
     prevEnd.setDate(prevEnd.getDate() - 1);
     const prevStart = new Date(prevEnd);
-    prevStart.setDate(prevStart.getDate() - diffDays + 1);
-
     return {
       startDate: toYMD(prevStart),
       endDate: toYMD(prevEnd),
@@ -275,9 +285,51 @@ export class AnalyticsService {
   }
 
   // 1. Dashboard Financial & Stock KPI Summary
-  async getDashboardSummary(period: DatePeriod = 'this_month', userId?: number): Promise<DashboardSummaryData> {
-    const { startDate, endDate, label } = this.resolveDateRange(period);
+  async getDashboardSummary(period: DatePeriod = 'this_month', userId?: number, customStart?: string, customEnd?: string): Promise<DashboardSummaryData> {
+    const { startDate, endDate, label } = this.resolveDateRange(period, customStart, customEnd);
+    const now = Date.now();
+    const cacheKey = `${period}:${startDate}:${endDate}:${userId || 'all'}`;
 
+    // 1. Instant RAM Cache Hit (0ms)
+    const cached = this.summaryCache.get(cacheKey);
+    if (cached && (now - cached.timestamp < this.CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    // 2. Direct Online Query from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.DASHBOARD_SUMMARY, {
+        params: { period, startDate: customStart, endDate: customEnd }
+      });
+      if (res.data) {
+        const d = res.data;
+        const summary: DashboardSummaryData = {
+          revenue: Number(d.revenue || 0),
+          cogs: Number(d.cogs || 0),
+          profit: Number(d.profit || 0),
+          salesCount: Number(d.salesCount || 0),
+          soldQuantity: Number(d.soldQuantity || 0),
+          currentTotalStock: Number(d.currentTotalStock || 0),
+          stockValuation: Number(d.stockValuation || 0),
+          lowStockCount: Number(d.lowStockCount || 0),
+          importsCount: 0,
+          adjustmentsCount: 0,
+          adjustmentsQuantity: 0,
+          periodLabel: d.periodLabel || label,
+          dateRange: {
+            startDate,
+            endDate,
+            period,
+          },
+        };
+        this.summaryCache.set(cacheKey, { data: summary, timestamp: now });
+        return summary;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud dashboard summary, falling back to local SQLite', err);
+    }
+
+    // 3. Fallback to Local SQLite
     try {
       let salesSql = `
         SELECT 
@@ -345,7 +397,7 @@ export class AnalyticsService {
         stockValuation = Number(prodValuation?.prod_val || 0);
       }
 
-      return {
+      const localSummary: DashboardSummaryData = {
         revenue: Number(salesStats?.total_revenue || 0),
         cogs: Number(salesStats?.total_cost || 0),
         profit: Number(salesStats?.total_profit || 0),
@@ -364,6 +416,8 @@ export class AnalyticsService {
           period,
         },
       };
+      this.summaryCache.set(cacheKey, { data: localSummary, timestamp: now });
+      return localSummary;
     } catch (err) {
       logger.error('AnalyticsService', 'Failed to get dashboard summary', err);
       return {
@@ -387,7 +441,38 @@ export class AnalyticsService {
   // 2. Revenue & Profit Trend Chart Data (Chronological daily breakdown)
   async getRevenueProfitTrend(period: DatePeriod = '30days', userId?: number): Promise<RevenueProfitTrendItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period);
+    const now = Date.now();
+    const cacheKey = `trend:${period}:${userId || 'all'}`;
 
+    // 1. Instant RAM Cache Hit (0ms)
+    const cached = this.trendCache.get(cacheKey);
+    if (cached && (now - cached.timestamp < this.CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    // 2. Direct Online Query from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.DASHBOARD_CHART_REVENUE_PROFIT, {
+        params: { period, granularity: 'day' }
+      });
+      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+        const cloudTrend = res.data.map((item: any) => ({
+          date: item.fullDate || item.timeKey,
+          label: item.label,
+          revenue: Number(item.revenue || 0),
+          cogs: Math.max(0, Number(item.revenue || 0) - Number(item.profit || 0)),
+          profit: Number(item.profit || 0),
+          soldQuantity: Number(item.soldQuantity || 0),
+          transactionCount: Number(item.transactionCount || 0),
+        }));
+        this.trendCache.set(cacheKey, { data: cloudTrend, timestamp: now });
+        return cloudTrend;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud revenue profit trend, falling back to local SQLite', err);
+    }
+
+    // 3. Fallback to Local SQLite
     try {
       let sql = `
         SELECT 
@@ -411,7 +496,7 @@ export class AnalyticsService {
 
       const rows = await this.db.query<any>(sql, params);
 
-      return rows.map((r) => {
+      const localTrend = rows.map((r) => {
         const dateStr = String(r.time_key).slice(0, 10);
         const dayMonth = dateStr.slice(5).replace('-', '/');
         return {
@@ -424,6 +509,8 @@ export class AnalyticsService {
           transactionCount: Number(r.transaction_count || 0),
         };
       });
+      this.trendCache.set(cacheKey, { data: localTrend, timestamp: now });
+      return localTrend;
     } catch (err) {
       logger.error('AnalyticsService', 'Failed to get revenue profit trend', err);
       return [];
@@ -433,7 +520,40 @@ export class AnalyticsService {
   // 3. Top Selling Products (by Quantity & Revenue)
   async getTopSellingProducts(period: DatePeriod = 'this_month', limit = 10, userId?: number): Promise<TopSellingItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period);
+    const now = Date.now();
+    const cacheKey = `top:${period}:${limit}:${userId || 'all'}`;
 
+    // 1. Instant RAM Cache Hit (0ms)
+    const cached = this.topSellingCache.get(cacheKey);
+    if (cached && (now - cached.timestamp < this.CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    // 2. Direct Online Query from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_TOP_SELLING, {
+        params: { period, limit }
+      });
+      if (res.data?.topSelling && Array.isArray(res.data.topSelling)) {
+        const items = res.data.topSelling.map((r: any) => ({
+          id: Number(r.id),
+          sku: String(r.sku),
+          name: String(r.name),
+          category_name: r.category_name || undefined,
+          product_type_name: r.product_type_name || undefined,
+          sold_quantity: Number(r.sold_quantity || 0),
+          total_revenue: Number(r.total_revenue || 0),
+          total_profit: Number(r.total_profit || 0),
+          current_stock: Number(r.current_stock || 0),
+        }));
+        this.topSellingCache.set(cacheKey, { data: items, timestamp: now });
+        return items;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud top selling products, falling back to local SQLite', err);
+    }
+
+    // 3. Fallback to Local SQLite
     try {
       let sql = `
         SELECT 
@@ -448,7 +568,7 @@ export class AnalyticsService {
         JOIN products p ON p.id = sr.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN product_types pt ON pt.id = p.product_type_id
-        WHERE sr.sale_date >= ? AND sr.sale_date <= ? AND sr.status = 'COMPLETED'
+        WHERE sr.sale_date >= ? AND sr.sale_date <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -466,7 +586,7 @@ export class AnalyticsService {
 
       const rows = await this.db.query<any>(sql, params);
 
-      return rows.map((r) => ({
+      const localItems = rows.map((r) => ({
         id: Number(r.id),
         sku: String(r.sku),
         name: String(r.name),
@@ -477,6 +597,8 @@ export class AnalyticsService {
         total_profit: Number(r.total_profit || 0),
         current_stock: Number(r.current_stock || 0),
       }));
+      this.topSellingCache.set(cacheKey, { data: localItems, timestamp: now });
+      return localItems;
     } catch (err) {
       logger.error('AnalyticsService', 'Failed to get top selling products', err);
       return [];
@@ -487,6 +609,28 @@ export class AnalyticsService {
   async getSlowMovingProducts(period: DatePeriod = 'this_month', limit = 10): Promise<SlowMovingItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period);
 
+    // 1. Direct Online Query from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_TOP_SELLING, {
+        params: { period, limit }
+      });
+      if (res.data?.slowMoving && Array.isArray(res.data.slowMoving)) {
+        return res.data.slowMoving.map((r: any) => ({
+          id: Number(r.id),
+          sku: String(r.sku),
+          name: String(r.name),
+          current_stock: Number(r.current_stock || 0),
+          current_cost_price: Number(r.current_cost_price || 0),
+          stock_valuation: Number(r.stock_valuation || 0),
+          category_name: r.category_name || undefined,
+          product_type_name: r.product_type_name || undefined,
+        }));
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud slow moving products, falling back to local SQLite', err);
+    }
+
+    // 2. Fallback to Local SQLite
     try {
       const sql = `
         SELECT 
@@ -1551,6 +1695,42 @@ export class AnalyticsService {
       `;
 
       const rows = await this.db.query<any>(sql, params);
+
+      if (rows.length === 0) {
+        try {
+          const res = await apiClient.get<any[]>(Endpoints.SALES, {
+            params: { startDate: dateStr, endDate: dateStr, limit: 100 }
+          });
+          if (res.data && Array.isArray(res.data) && res.data.length > 0) {
+            const map = new Map<string, OrderDrilldownItem>();
+            for (const r of res.data) {
+              const code = r.transaction_code || `TX-${r.id}`;
+              if (!map.has(code)) {
+                map.set(code, {
+                  id: Number(r.id),
+                  orderCode: code,
+                  saleDate: String(r.sale_date).slice(0, 10),
+                  finalAmount: Number(r.total_revenue || 0),
+                  totalDiscount: Number(r.discount || 0),
+                  totalAmount: Number(r.total_revenue || 0) + Number(r.discount || 0),
+                  paymentMethod: 'CASH',
+                  cashierName: r.seller_name || 'Thu ngân',
+                  itemsCount: 1,
+                });
+              } else {
+                const item = map.get(code)!;
+                item.finalAmount += Number(r.total_revenue || 0);
+                item.totalDiscount += Number(r.discount || 0);
+                item.totalAmount += Number(r.total_revenue || 0) + Number(r.discount || 0);
+                item.itemsCount += 1;
+              }
+            }
+            return Array.from(map.values());
+          }
+        } catch (cloudErr) {
+          logger.warn('AnalyticsService', 'Cloud drilldown fetch failed', cloudErr);
+        }
+      }
 
       return rows.map((r) => ({
         id: Number(r.id),
