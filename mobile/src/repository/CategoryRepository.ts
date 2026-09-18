@@ -39,7 +39,7 @@ export class CategoryRepository implements IRepository<Category> {
   async getAll(forceRemote = false): Promise<Category[]> {
     const now = Date.now();
 
-    // 1. Instant Cache Return (0ms latency for smooth UX)
+    // 1. Instant RAM Cache Return
     if (!forceRemote && this.memoryCache && (now - this.memoryCache.timestamp < this.CACHE_TTL_MS)) {
       return this.memoryCache.data;
     }
@@ -47,24 +47,17 @@ export class CategoryRepository implements IRepository<Category> {
     // 2. Direct Online Fetch from Supabase Cloud API
     try {
       const remoteData = await this.remoteSource.getAll();
-      if (remoteData && remoteData.length > 0) {
+      if (remoteData) {
         this.memoryCache = { data: remoteData, timestamp: now };
-        // Asynchronously persist to SQLite cache without blocking caller
-        this.localSource.saveBatch(remoteData).catch((err) => {
-          logger.warn('CategoryRepository', 'Failed to update local SQLite category cache', err);
-        });
         return remoteData;
       }
     } catch (err) {
-      logger.warn('CategoryRepository', 'Failed to fetch remote categories from Supabase, falling back to local SQLite', err);
+      logger.error('CategoryRepository', 'Failed to fetch categories from Supabase Cloud API', err);
+      if (this.memoryCache) return this.memoryCache.data;
+      throw err;
     }
 
-    // 3. Fallback to Local SQLite (Offline Mode)
-    const localData = await this.localSource.getAll();
-    if (localData.length > 0) {
-      this.memoryCache = { data: localData, timestamp: now };
-    }
-    return localData;
+    return this.memoryCache?.data || [];
   }
 
   async getById(id: number | string, forceRemote = false): Promise<Category | null> {
@@ -75,19 +68,24 @@ export class CategoryRepository implements IRepository<Category> {
 
     try {
       const remote = await this.remoteSource.getById(id);
-      if (remote) {
-        this.localSource.save(remote).catch(() => {});
-        return remote;
-      }
+      if (remote) return remote;
     } catch (err) {
-      logger.warn('CategoryRepository', `Failed to fetch remote category ${id}`, err);
+      logger.error('CategoryRepository', `Failed to fetch remote category ${id}`, err);
     }
 
-    return await this.localSource.getById(id);
+    return null;
   }
 
   async getTypesByCategory(categoryId: number): Promise<ProductType[]> {
-    return await this.localSource.getTypesByCategory(categoryId);
+    try {
+      const res = await apiClient.get<ProductType[]>(Endpoints.PRODUCT_TYPES, {
+        params: { categoryId }
+      });
+      return res.data || [];
+    } catch (err) {
+      logger.warn('CategoryRepository', 'Failed to fetch product types from Cloud API', err);
+      return [];
+    }
   }
 
   async search(query: string): Promise<Category[]> {
@@ -105,113 +103,36 @@ export class CategoryRepository implements IRepository<Category> {
 
   async createCategory(
     input: { code: string; name: string; description?: string },
-    userId = 1
+    _userId = 1
   ): Promise<Category> {
     this.clearMemoryCache();
 
-    // 1. Try Direct Online Creation on Supabase Server
-    try {
-      const res = await apiClient.post<Category>(Endpoints.CATEGORIES, {
-        code: input.code.trim().toUpperCase(),
-        name: input.name.trim(),
-        description: input.description?.trim() || null,
-      });
-
-      if (res.data) {
-        const createdRemote = res.data;
-        await this.localSource.save(createdRemote);
-        return createdRemote;
-      }
-    } catch (err) {
-      logger.warn('CategoryRepository', 'Direct server category creation failed, enqueuing to Outbox for offline safety', err);
-    }
-
-    // 2. Offline Fallback: Local SQLite + Outbox
-    const created = await this.localSource.create(input);
-    const { outboxService } = await import('../services/OutboxService');
-    await outboxService.enqueue({
-      clientMutationId: `cat-create-${created.id}-${Date.now()}`,
-      entityType: 'CATEGORY',
-      entityId: String(created.id),
-      action: 'CREATE',
-      payload: {
-        id: created.id,
-        code: created.code,
-        name: created.name,
-        description: created.description,
-        status: created.status,
-      },
-      userId,
+    const res = await apiClient.post<Category>(Endpoints.CATEGORIES, {
+      code: input.code.trim().toUpperCase(),
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
     });
 
-    return created;
+    if (res.data) {
+      return res.data;
+    }
+    throw new Error('Không nhận được phản hồi từ máy chủ Supabase.');
   }
 
   async updateCategory(
     id: number,
     input: { code?: string; name?: string; description?: string; status?: 'ACTIVE' | 'INACTIVE' },
-    userId = 1
+    _userId = 1
   ): Promise<Category | null> {
     this.clearMemoryCache();
 
-    // 1. Try Direct Online Update on Supabase Server
-    try {
-      const res = await apiClient.put<Category>(Endpoints.CATEGORY_DETAIL(id), input);
-      if (res.data) {
-        const updatedRemote = res.data;
-        await this.localSource.save(updatedRemote);
-        return updatedRemote;
-      }
-    } catch (err) {
-      logger.warn('CategoryRepository', `Direct server category update failed for ${id}, enqueuing to Outbox`, err);
-    }
-
-    // 2. Offline Fallback: Local SQLite + Outbox
-    const updated = await this.localSource.update(id, input);
-    if (!updated) return null;
-
-    const { outboxService } = await import('../services/OutboxService');
-    await outboxService.enqueue({
-      clientMutationId: `cat-update-${id}-${Date.now()}`,
-      entityType: 'CATEGORY',
-      entityId: String(id),
-      action: 'UPDATE',
-      payload: {
-        id,
-        code: updated.code,
-        name: updated.name,
-        description: updated.description,
-        status: updated.status,
-      },
-      userId,
-    });
-
-    return updated;
+    const res = await apiClient.put<Category>(Endpoints.CATEGORY_DETAIL(id), input);
+    return res.data || null;
   }
 
-  async deleteCategory(id: number, userId = 1): Promise<void> {
+  async deleteCategory(id: number, _userId = 1): Promise<void> {
     this.clearMemoryCache();
-
-    // 1. Try Direct Online Delete on Supabase Server
-    try {
-      await apiClient.delete(Endpoints.CATEGORY_DETAIL(id));
-    } catch (err) {
-      logger.warn('CategoryRepository', `Direct server category delete failed for ${id}, enqueuing to Outbox`, err);
-    }
-
-    // 2. Delete in Local SQLite
-    await this.localSource.delete(id);
-
-    // 3. Fallback Outbox Queue
-    const { outboxService } = await import('../services/OutboxService');
-    await outboxService.enqueue({
-      clientMutationId: `cat-delete-${id}-${Date.now()}`,
-      entityType: 'CATEGORY',
-      entityId: String(id),
-      action: 'DELETE',
-      payload: { id },
-      userId,
-    });
+    await apiClient.delete(Endpoints.CATEGORY_DETAIL(id));
   }
 
   async deactivateCategory(id: number, userId = 1): Promise<Category | null> {

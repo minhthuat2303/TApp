@@ -116,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           platform: credentials.platform || 'android',
           app_version: credentials.app_version || '1.0.0',
         },
-        { skipAuth: true, timeoutMs: 3000 }
+        { skipAuth: true, timeoutMs: 15000 }
       );
 
       if (response.success && response.data) {
@@ -138,6 +138,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthStatus('AUTHENTICATED');
         setRevocationReason(null);
         logger.info('AuthContext', `Login successful for ${newUser.username} (${newUser.role})`);
+
+        // Trigger background initial sync to pull master data
+        try {
+          const { syncEngine } = await import('../sync/SyncEngine');
+          syncEngine.sync().catch(e => logger.warn('AuthContext', 'Auto-sync after login failed', e));
+        } catch {}
       }
     } catch (err) {
       // Offline-first fallback: when server is unreachable or app is offline

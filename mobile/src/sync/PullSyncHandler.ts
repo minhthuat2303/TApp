@@ -94,6 +94,19 @@ export class PullSyncHandler {
 
         // 3. Products
         for (const prod of products) {
+          if (prod.category_id) {
+            await tx.runAsync(`
+              INSERT OR IGNORE INTO categories (id, code, name, status, created_at, updated_at)
+              VALUES (?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+            `, [prod.category_id, `CAT-${prod.category_id}`, `Danh mục ${prod.category_id}`]);
+          }
+          if (prod.product_type_id && prod.category_id) {
+            await tx.runAsync(`
+              INSERT OR IGNORE INTO product_types (id, category_id, code, name, status, created_at, updated_at)
+              VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+            `, [prod.product_type_id, prod.category_id, `TYPE-${prod.product_type_id}`, `Loại ${prod.product_type_id}`]);
+          }
+
           await tx.runAsync(`
             INSERT INTO products (
               id, sku, name, category_id, product_type_id, current_cost_price,

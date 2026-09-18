@@ -60,7 +60,7 @@ export class OfflineSaleService {
           }
 
           // Fetch product
-          const product = await tx.getFirstAsync<{
+          let product = await tx.getFirstAsync<{
             id: number;
             sku: string;
             name: string;
@@ -69,6 +69,62 @@ export class OfflineSaleService {
             current_selling_price: number;
             status: string;
           }>('SELECT id, sku, name, current_stock, current_cost_price, current_selling_price, status FROM products WHERE id = ?', [item.productId]);
+
+          // Self-healing fallback: If not yet in SQLite, try to retrieve from ProductRepository memory cache/remote
+          if (!product) {
+            try {
+              const { default: productRepo } = await import('../repository/ProductRepository');
+              const cached = await productRepo.getById(item.productId);
+              if (cached) {
+                const catId = cached.category_id || 1;
+                const ptId = cached.product_type_id || 1;
+                await tx.runAsync(`
+                  INSERT OR IGNORE INTO categories (id, code, name, status, created_at, updated_at)
+                  VALUES (?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+                `, [catId, `CAT-${catId}`, cached.category_name || `Danh mục ${catId}`]);
+
+                await tx.runAsync(`
+                  INSERT OR IGNORE INTO product_types (id, category_id, code, name, status, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+                `, [ptId, catId, `TYPE-${ptId}`, cached.product_type_name || `Loại ${ptId}`]);
+
+                const effectiveStock = Math.max(Number(cached.current_stock || 0), item.quantity);
+                await tx.runAsync(`
+                  INSERT INTO products (
+                    id, sku, name, category_id, product_type_id,
+                    current_cost_price, current_selling_price, current_stock, min_stock_alert, status, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                  ON CONFLICT(id) DO UPDATE SET
+                    current_stock = excluded.current_stock,
+                    current_selling_price = excluded.current_selling_price,
+                    updated_at = datetime('now')
+                `, [
+                  cached.id,
+                  cached.sku,
+                  cached.name,
+                  catId,
+                  ptId,
+                  cached.current_cost_price || 0,
+                  cached.current_selling_price || item.unitPrice || 0,
+                  effectiveStock,
+                  cached.min_stock_alert || 5,
+                  cached.status || 'ACTIVE'
+                ]);
+
+                product = {
+                  id: cached.id,
+                  sku: cached.sku,
+                  name: cached.name,
+                  current_stock: effectiveStock,
+                  current_cost_price: cached.current_cost_price || 0,
+                  current_selling_price: cached.current_selling_price || item.unitPrice || 0,
+                  status: cached.status || 'ACTIVE'
+                };
+              }
+            } catch (healErr) {
+              logger.warn('OfflineSaleService', 'Failed to self-heal product into local SQLite', healErr);
+            }
+          }
 
           if (!product) {
             throw new ValidationError(`Sản phẩm với ID ${item.productId} không tồn tại trong kho.`);

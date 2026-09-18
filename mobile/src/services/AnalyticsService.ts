@@ -298,8 +298,8 @@ export class AnalyticsService {
 
     // 2. Direct Online Query from Supabase Cloud API
     try {
-      const res = await apiClient.get<any>(Endpoints.DASHBOARD_SUMMARY, {
-        params: { period, startDate: customStart, endDate: customEnd }
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'overview', period, startDate: customStart, endDate: customEnd }
       });
       if (res.data) {
         const d = res.data;
@@ -938,6 +938,30 @@ export class AnalyticsService {
   ): Promise<DetailedSalesRowItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
 
+    // 1. Direct Cloud API Fetch from Supabase PostgreSQL
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'timeline', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data?.points && Array.isArray(res.data.points)) {
+        return res.data.points.map((p: any) => ({
+          timeKey: p.date,
+          label: p.date,
+          grossSales: p.revenue,
+          discount: 0,
+          netRevenue: p.revenue,
+          cogs: p.cost,
+          grossProfit: p.profit,
+          margin: p.margin,
+          ordersCount: p.ordersCount,
+          unitsSold: p.unitsSold,
+          aov: p.ordersCount > 0 ? Math.round(p.revenue / p.ordersCount) : 0,
+        }));
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch timeline from Cloud API', err);
+    }
+
     try {
       let groupExpr = 'sale_date';
       if (granularity === 'week') {
@@ -1012,6 +1036,22 @@ export class AnalyticsService {
   // 9. Tab 2: Discount Breakdown Analysis
   async getDiscountAnalysis(period: DatePeriod = 'this_month', customStart?: string, customEnd?: string, userId?: number): Promise<DiscountAnalysisData> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
+
+    // 1. Direct Cloud API Fetch
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'discount', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data) {
+        return {
+          ...res.data,
+          discountToRevenueRatio: res.data.discountPercentageOfGross || 0,
+          topDiscountedProducts: [],
+        };
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch discount analysis from Cloud API', err);
+    }
 
     try {
       let baseSql = `
@@ -1104,6 +1144,23 @@ export class AnalyticsService {
   ): Promise<ProductPerformanceItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
 
+    // 1. Direct Cloud API Fetch
+    try {
+      const res = await apiClient.get<any[]>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'products', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data && Array.isArray(res.data)) {
+        let items: ProductPerformanceItem[] = res.data;
+        if (sortBy === 'revenue') items.sort((a, b) => b.netRevenue - a.netRevenue);
+        else if (sortBy === 'profit') items.sort((a, b) => b.grossProfit - a.grossProfit);
+        else if (sortBy === 'margin') items.sort((a, b) => b.margin - a.margin);
+        else if (sortBy === 'quantity') items.sort((a, b) => b.soldQuantity - a.soldQuantity);
+        return items;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch product performance from Cloud API', err);
+    }
+
     try {
       let sql = `
         SELECT 
@@ -1192,6 +1249,18 @@ export class AnalyticsService {
     userId?: number
   ): Promise<CategoryPerformanceItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
+
+    // 1. Direct Cloud API Fetch
+    try {
+      const res = await apiClient.get<any[]>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'categories', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data && Array.isArray(res.data)) {
+        return res.data;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch category performance from Cloud API', err);
+    }
 
     try {
       let sql = `
@@ -1323,6 +1392,18 @@ export class AnalyticsService {
   ): Promise<HourlyPerformanceItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
 
+    // 1. Direct Cloud API Fetch
+    try {
+      const res = await apiClient.get<any[]>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'hourly', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data && Array.isArray(res.data)) {
+        return res.data;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch hourly performance from Cloud API', err);
+    }
+
     try {
       let sql = `
         SELECT 
@@ -1407,6 +1488,18 @@ export class AnalyticsService {
   ): Promise<WeekdayPerformanceItem[]> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
 
+    // 1. Direct Cloud API Fetch
+    try {
+      const res = await apiClient.get<any[]>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'weekday', period, startDate: customStart, endDate: customEnd, userId }
+      });
+      if (res.data && Array.isArray(res.data)) {
+        return res.data;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch weekday performance from Cloud API', err);
+    }
+
     try {
       let sql = `
         SELECT 
@@ -1475,6 +1568,18 @@ export class AnalyticsService {
   async getStaffPerformance(period: DatePeriod = 'this_month', customStart?: string, customEnd?: string): Promise<{ hasData: boolean; staff: StaffPerformanceItem[] }> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
 
+    // 1. Direct Cloud API Fetch from Supabase PostgreSQL
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'staff', period, startDate: customStart, endDate: customEnd }
+      });
+      if (res.data) {
+        return res.data;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch staff performance from Cloud API', err);
+    }
+
     try {
       const sql = `
         SELECT 
@@ -1530,6 +1635,18 @@ export class AnalyticsService {
   // 16. Tab 5: Inventory Capital & Valuation Analysis ("Tiền đang nằm ở đâu?")
   async getInventoryCapitalAnalysis(period: DatePeriod = 'this_month', customStart?: string, customEnd?: string): Promise<InventoryCapitalData> {
     const { startDate, endDate } = this.resolveDateRange(period, customStart, customEnd);
+
+    // 1. Direct Cloud API Fetch from Supabase PostgreSQL
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'inventory_capital', period, startDate: customStart, endDate: customEnd }
+      });
+      if (res.data) {
+        return res.data;
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch inventory capital from Cloud API', err);
+    }
 
     try {
       const [lotValuationRow, stockStatsRow, cogsRow, deadStockList, categoryRows, topProductsRows] = await Promise.all([

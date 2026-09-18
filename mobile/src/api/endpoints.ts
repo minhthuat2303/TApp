@@ -33,6 +33,7 @@ export const Endpoints = {
   DASHBOARD_CHART_INVENTORY: '/api/dashboard/charts/inventory',
   REPORTS_SALES_BY_DATE: '/api/reports/sales-by-date',
   REPORTS_TOP_SELLING: '/api/reports/top-selling',
+  REPORTS_ANALYTICS: '/api/reports/analytics',
 
   // Sync Endpoints (To be implemented in Phase 05)
   SYNC_PULL: '/api/sync/pull',

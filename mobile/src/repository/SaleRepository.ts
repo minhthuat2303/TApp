@@ -178,12 +178,11 @@ export class SaleRepository implements IRepository<SalesRecord> {
 
         return { order, items: createdRecords };
       }
-    } catch (err) {
-      logger.warn('SaleRepository', 'Direct Supabase checkout failed, falling back to OfflineSaleService', err);
+      throw new Error('Máy chủ Supabase không trả về bản ghi đơn hàng hợp lệ.');
+    } catch (err: any) {
+      logger.error('SaleRepository', 'Direct Supabase checkout failed', err);
+      throw new Error(err?.message || 'Không thể tạo đơn hàng trên máy chủ Supabase. Vui lòng kiểm tra kết nối mạng.');
     }
-
-    // 2. Offline Fallback: Local SQLite Atomic Transaction + Outbox Queue
-    return await this.saleService.createSaleOrder(input);
   }
 
   async getAllOrders(limit = 50, offset = 0, createdBy?: number): Promise<SalesOrder[]> {
@@ -373,23 +372,23 @@ export class SaleRepository implements IRepository<SalesRecord> {
   async cancelSaleOrder(input: CancelSaleOrderInput): Promise<CancelSaleOrderResult> {
     this.clearCache();
 
-    // 1. Try Direct Online Cancellation on Supabase Server
-    if (input.orderId) {
-      try {
-        await apiClient.post(Endpoints.SALES_CANCEL(input.orderId), {
-          reason: input.reason,
-        });
-
-        // Invalidate Product RAM cache
-        const { productRepository } = await import('./ProductRepository');
-        productRepository.clearMemoryCache();
-      } catch (err) {
-        logger.warn('SaleRepository', `Direct server cancellation failed for order ${input.orderId}`, err);
-      }
+    if (!input.orderId) {
+      throw new Error('ID đơn hàng không hợp lệ để hủy.');
     }
 
-    // 2. Perform local cancellation
-    return await this.saleService.cancelSaleOrder(input);
+    const res = await apiClient.post<any>(Endpoints.SALES_CANCEL(input.orderId), {
+      reason: input.reason,
+    });
+
+    // Invalidate Product RAM cache
+    const { productRepository } = await import('./ProductRepository');
+    productRepository.clearMemoryCache();
+
+    return {
+      success: true,
+      restoredQuantity: Number(res.data?.restoredQuantity || 0),
+      order: null,
+    };
   }
 
   async getTodaySummary(createdBy?: number): Promise<TodaySalesSummary> {

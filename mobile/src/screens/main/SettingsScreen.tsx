@@ -257,18 +257,11 @@ export const SettingsScreen: React.FC = () => {
           </View>
 
           <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Trạng thái đồng bộ (Sync Status):</Text>
+            <Text style={styles.settingLabel}>Cơ chế lấy dữ liệu:</Text>
             <Badge 
-              label={syncStatus === 'SYNCED' ? 'Đã đồng bộ' : syncStatus === 'SYNCING' ? 'Đang gửi...' : syncStatus} 
-              variant={syncStatus === 'SYNCED' ? 'success' : 'warning'} 
+              label="Supabase Cloud 100% Trực tiếp" 
+              variant="success" 
             />
-          </View>
-
-          <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Giao dịch Outbox chờ gửi:</Text>
-            <Text style={[styles.settingValue, pendingCount > 0 && { color: Colors.warning }]}>
-              {pendingCount} giao dịch
-            </Text>
           </View>
 
           <View style={styles.settingRow}>
@@ -286,7 +279,7 @@ export const SettingsScreen: React.FC = () => {
           </View>
 
           <Text style={styles.syncNote}>
-            Tất cả mã xác thực và token đăng nhập được mã hóa an toàn trong phần cứng thiết bị (SecureStore). Không hiển thị bí mật hoặc token ra giao diện.
+            Toàn bộ số liệu sản phẩm, đơn hàng, báo cáo được lấy trực tiếp 100% từ cơ sở dữ liệu Supabase trên Cloud, bảo đảm đồng nhất tuyệt đối với Web.
           </Text>
         </Card>
 
@@ -297,6 +290,26 @@ export const SettingsScreen: React.FC = () => {
             onPress={() => recheckServer()}
             variant="outline"
             size="sm"
+          />
+
+          <Button
+            title="⚡ Làm mới dữ liệu từ Cloud (Refresh)"
+            onPress={async () => {
+              try {
+                const { default: catRepo } = await import('../../repository/CategoryRepository');
+                const { default: prodRepo } = await import('../../repository/ProductRepository');
+                await Promise.all([
+                  catRepo.getAll(true),
+                  prodRepo.getAll(true),
+                ]);
+                Alert.alert('Thành công', 'Đã làm mới toàn bộ dữ liệu từ máy chủ Supabase Cloud.');
+              } catch (e: any) {
+                Alert.alert('Lỗi', e?.message || 'Không thể làm mới dữ liệu.');
+              }
+            }}
+            variant="secondary"
+            size="sm"
+            style={{ marginTop: Spacing.sm }}
           />
 
           <Button

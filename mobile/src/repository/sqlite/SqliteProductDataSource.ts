@@ -171,6 +171,19 @@ export class SqliteProductDataSource implements ILocalDataSource<Product> {
 
   async save(item: Product): Promise<void> {
     try {
+      if (item.category_id) {
+        await this.db.execute(`
+          INSERT OR IGNORE INTO categories (id, code, name, status, created_at, updated_at)
+          VALUES (?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+        `, [item.category_id, `CAT-${item.category_id}`, item.category_name || `Danh mục ${item.category_id}`]);
+      }
+      if (item.product_type_id && item.category_id) {
+        await this.db.execute(`
+          INSERT OR IGNORE INTO product_types (id, category_id, code, name, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+        `, [item.product_type_id, item.category_id, `TYPE-${item.product_type_id}`, item.product_type_name || `Loại ${item.product_type_id}`]);
+      }
+
       await this.db.execute(`
         INSERT INTO products (
           id, sku, name, category_id, product_type_id,
@@ -210,6 +223,20 @@ export class SqliteProductDataSource implements ILocalDataSource<Product> {
     try {
       await this.db.withTransaction(async (tx) => {
         for (const item of items) {
+          if (item.category_id) {
+            await tx.runAsync(`
+              INSERT OR IGNORE INTO categories (id, code, name, status, created_at, updated_at)
+              VALUES (?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+            `, [item.category_id, `CAT-${item.category_id}`, item.category_name || `Danh mục ${item.category_id}`]);
+          }
+
+          if (item.product_type_id && item.category_id) {
+            await tx.runAsync(`
+              INSERT OR IGNORE INTO product_types (id, category_id, code, name, status, created_at, updated_at)
+              VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now'), datetime('now'))
+            `, [item.product_type_id, item.category_id, `TYPE-${item.product_type_id}`, item.product_type_name || `Loại ${item.product_type_id}`]);
+          }
+
           await tx.runAsync(`
             INSERT INTO products (
               id, sku, name, category_id, product_type_id,

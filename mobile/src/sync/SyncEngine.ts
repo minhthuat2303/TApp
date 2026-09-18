@@ -131,6 +131,16 @@ export class SyncEngine {
         sessionError = pullErr.message || 'Lỗi khi tải dữ liệu từ máy chủ';
       }
 
+      // Reinforce Master Data: Ensure categories and products are always populated into SQLite
+      try {
+        const { default: catRepo } = await import('../repository/CategoryRepository');
+        const { default: prodRepo } = await import('../repository/ProductRepository');
+        await catRepo.getAll(true);
+        await prodRepo.getAll(true);
+      } catch (masterDataErr) {
+        logger.warn('SyncEngine', 'Could not refresh master data directly', masterDataErr);
+      }
+
       logger.info('SyncEngine', `Sync session ${sessionId} completed: push=${pushCount} (ok:${successCount}, fail:${failedCount}, conf:${conflictCount}), pull=${pullCount}`);
     } catch (err: any) {
       sessionStatus = 'FAILED';
