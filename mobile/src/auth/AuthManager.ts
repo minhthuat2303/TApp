@@ -65,11 +65,13 @@ class AuthManager {
     const deviceId = await tokenStorage.getDeviceId();
 
     if (!rawRefreshToken) {
-      this.notify({ type: 'AUTH_EXPIRED', reason: 'No refresh token stored' });
+      logger.warn('AuthManager', 'No refresh token stored, skipping token refresh attempt.');
       throw new Error('NO_REFRESH_TOKEN');
     }
 
-    const refreshUrl = `${Config.API_BASE_URL.replace(/\/+$/, '')}/api/auth/refresh`;
+    const savedUrl = await tokenStorage.getServerUrl();
+    const activeBaseUrl = (savedUrl && savedUrl.trim()) ? savedUrl.trim().replace(/\/+$/, '') : Config.API_BASE_URL.replace(/\/+$/, '');
+    const refreshUrl = `${activeBaseUrl}/api/auth/refresh`;
     logger.info('AuthManager', `Attempting refresh token rotation at ${refreshUrl}`);
 
     try {
@@ -104,8 +106,10 @@ class AuthManager {
           this.notify({ type: 'DEVICE_REVOKED', reason: errorMessage });
         } else if (errorCode === 'AUTH_EXPIRED' || errorCode === 'REFRESH_TOKEN_EXPIRED') {
           this.notify({ type: 'AUTH_EXPIRED', reason: errorMessage });
+        } else if (response.status === 401 || response.status === 403) {
+          this.notify({ type: 'AUTH_EXPIRED', reason: errorMessage });
         } else {
-          this.notify({ type: 'UNAUTHORIZED', reason: errorMessage });
+          logger.warn('AuthManager', `Server returned temporary refresh error ${response.status}: ${errorMessage}`);
         }
 
         throw new Error(errorCode);

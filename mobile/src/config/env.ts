@@ -26,7 +26,7 @@ const ENV: AppEnvironment = __DEV__ ? 'development' : 'production';
 
 export const Config = {
   APP_ENV: ENV,
-  API_BASE_URL: ENV === 'development' ? getDevelopmentHost() : 'https://api.tshop.retail',
+  API_BASE_URL: process.env.EXPO_PUBLIC_API_URL || getDevelopmentHost(),
   API_TIMEOUT_MS: 15000,
   APP_NAME: 'T_SHOP Mobile POS',
   APP_VERSION: '1.0.0',

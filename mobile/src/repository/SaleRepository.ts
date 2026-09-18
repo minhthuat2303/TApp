@@ -247,12 +247,15 @@ export class SaleRepository implements IRepository<SalesRecord> {
 
         for (const r of res.data) {
           const code = r.transaction_code || `TX-${r.id}`;
+          const rawDate = String(r.sale_date || '');
+          const normalizedDate = rawDate.includes('T') ? rawDate.split('T')[0] : (rawDate.slice(0, 10) || rawDate);
+
           if (!orderMap.has(code)) {
             orderMap.set(code, {
               id: r.id,
               client_order_id: code,
               order_code: code,
-              sale_date: r.sale_date,
+              sale_date: normalizedDate,
               total_items: Number(r.quantity),
               total_amount: Number(r.total_revenue) + Number(r.discount || 0),
               total_discount: Number(r.discount || 0),

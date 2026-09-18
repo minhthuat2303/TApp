@@ -18,12 +18,12 @@ export async function GET(request: NextRequest) {
     let params: any[] = [];
 
     if (startDate) {
-      whereClauses.push(`sr.sale_date >= ?`);
+      whereClauses.push(`DATE(sr.sale_date) >= ?`);
       params.push(startDate);
     }
 
     if (endDate) {
-      whereClauses.push(`sr.sale_date <= ?`);
+      whereClauses.push(`DATE(sr.sale_date) <= ?`);
       params.push(endDate);
     }
 

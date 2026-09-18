@@ -331,11 +331,11 @@ export class SqliteSaleDataSource {
       const queryParams: unknown[] = [];
 
       if (params?.startDate) {
-        conditions.push('so.sale_date >= ?');
+        conditions.push('substr(so.sale_date, 1, 10) >= ?');
         queryParams.push(params.startDate);
       }
       if (params?.endDate) {
-        conditions.push('so.sale_date <= ?');
+        conditions.push('substr(so.sale_date, 1, 10) <= ?');
         queryParams.push(params.endDate);
       }
       if (params?.status && params.status !== 'ALL') {

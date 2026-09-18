@@ -25,8 +25,8 @@ export async function GET(request: NextRequest) {
 
     // Filter conditions for sales records
     let salesWhere: string[] = [
-      `sr.sale_date >= ?`,
-      `sr.sale_date <= ?`,
+      `DATE(sr.sale_date) >= ?`,
+      `DATE(sr.sale_date) <= ?`,
     ];
     let salesParams: any[] = [startDate, endDate];
 

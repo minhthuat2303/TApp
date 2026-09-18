@@ -38,7 +38,7 @@ export function signAccessToken(
       device_id: deviceId,
     },
     JWT_SECRET,
-    { expiresIn: '15m' }
+    { expiresIn: '30d' }
   );
 }
 

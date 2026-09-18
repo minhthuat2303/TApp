@@ -339,7 +339,7 @@ export class AnalyticsService {
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_cost ELSE 0 END), 0) as total_cost,
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN profit ELSE 0 END), 0) as total_profit
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ?
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ?
       `;
       const salesParams: any[] = [startDate, endDate];
 
@@ -483,7 +483,7 @@ export class AnalyticsService {
           COALESCE(SUM(total_cost), 0) as total_cost,
           COALESCE(SUM(profit), 0) as profit
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -568,7 +568,7 @@ export class AnalyticsService {
         JOIN products p ON p.id = sr.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN product_types pt ON pt.id = p.product_type_id
-        WHERE sr.sale_date >= ? AND sr.sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sr.sale_date, 1, 10) >= ? AND substr(sr.sale_date, 1, 10) <= ? AND sr.status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -645,7 +645,7 @@ export class AnalyticsService {
           AND p.id NOT IN (
             SELECT DISTINCT product_id 
             FROM sales_records 
-            WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+            WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
           )
         ORDER BY p.current_stock DESC
         LIMIT ?
@@ -683,7 +683,7 @@ export class AnalyticsService {
           COALESCE(SUM(total_cost), 0) as total_cost,
           COALESCE(SUM(profit), 0) as total_profit
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -751,7 +751,7 @@ export class AnalyticsService {
           COALESCE(SUM(quantity), 0) as units_sold,
           COUNT(DISTINCT COALESCE(client_order_id, transaction_code)) as orders_count
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const curParams: any[] = [curRange.startDate, curRange.endDate];
       if (userId !== undefined) {
@@ -770,7 +770,7 @@ export class AnalyticsService {
           COALESCE(SUM(quantity), 0) as units_sold,
           COUNT(DISTINCT COALESCE(client_order_id, transaction_code)) as orders_count
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const prevParams: any[] = [prevRange.startDate, prevRange.endDate];
       if (userId !== undefined) {
@@ -958,7 +958,7 @@ export class AnalyticsService {
           COALESCE(SUM(quantity), 0) as units_sold,
           COUNT(DISTINCT COALESCE(client_order_id, transaction_code)) as orders_count
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -1021,7 +1021,7 @@ export class AnalyticsService {
           COUNT(DISTINCT COALESCE(client_order_id, transaction_code)) as total_orders,
           COUNT(DISTINCT CASE WHEN discount > 0 THEN COALESCE(client_order_id, transaction_code) END) as discounted_orders
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const baseParams: any[] = [startDate, endDate];
       if (userId !== undefined) {
@@ -1038,7 +1038,7 @@ export class AnalyticsService {
           COALESCE(SUM(CASE WHEN sr.discount > 0 THEN sr.quantity ELSE 0 END), 0) as units_discounted
         FROM sales_records sr
         JOIN products p ON p.id = sr.product_id
-        WHERE sr.sale_date >= ? AND sr.sale_date <= ? AND sr.status = 'COMPLETED' AND sr.discount > 0
+        WHERE substr(sr.sale_date, 1, 10) >= ? AND substr(sr.sale_date, 1, 10) <= ? AND sr.status = 'COMPLETED' AND sr.discount > 0
       `;
       const topDiscParams: any[] = [startDate, endDate];
       if (userId !== undefined) {
@@ -1119,7 +1119,7 @@ export class AnalyticsService {
           p.current_stock
         FROM products p
         LEFT JOIN sales_records sr ON sr.product_id = p.id 
-          AND sr.sale_date >= ? AND sr.sale_date <= ? 
+          AND substr(sr.sale_date, 1, 10) >= ? AND substr(sr.sale_date, 1, 10) <= ? 
           AND sr.status = 'COMPLETED'
           ${userId !== undefined ? 'AND (sr.created_by = ? OR sr.created_by IS NULL)' : ''}
         LEFT JOIN categories c ON c.id = p.category_id
@@ -1209,7 +1209,7 @@ export class AnalyticsService {
         FROM categories c
         JOIN products p ON p.category_id = c.id
         LEFT JOIN sales_records sr ON sr.product_id = p.id 
-          AND sr.sale_date >= ? AND sr.sale_date <= ? 
+          AND substr(sr.sale_date, 1, 10) >= ? AND substr(sr.sale_date, 1, 10) <= ? 
           AND sr.status = 'COMPLETED'
           ${userId !== undefined ? 'AND (sr.created_by = ? OR sr.created_by IS NULL)' : ''}
         WHERE c.status = 'ACTIVE'
@@ -1332,7 +1332,7 @@ export class AnalyticsService {
           COALESCE(SUM(profit), 0) as gross_profit,
           COALESCE(SUM(quantity), 0) as units_sold
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -1416,7 +1416,7 @@ export class AnalyticsService {
           COALESCE(SUM(profit), 0) as gross_profit,
           COALESCE(SUM(quantity), 0) as units_sold
         FROM sales_records
-        WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+        WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
       `;
       const params: any[] = [startDate, endDate];
 
@@ -1488,7 +1488,7 @@ export class AnalyticsService {
           COALESCE(SUM(sr.quantity), 0) as units_sold
         FROM sales_records sr
         LEFT JOIN users u ON u.id = sr.created_by
-        WHERE sr.sale_date >= ? AND sr.sale_date <= ? AND sr.status = 'COMPLETED'
+        WHERE substr(sr.sale_date, 1, 10) >= ? AND substr(sr.sale_date, 1, 10) <= ? AND sr.status = 'COMPLETED'
         GROUP BY COALESCE(u.id, sr.created_by, 1), u.username, u.full_name, u.role
         ORDER BY net_revenue DESC
       `;
@@ -1548,7 +1548,7 @@ export class AnalyticsService {
         this.db.queryOne<any>(`
           SELECT COALESCE(SUM(total_cost), 0) as period_cogs
           FROM sales_records
-          WHERE sale_date >= ? AND sale_date <= ? AND status = 'COMPLETED'
+          WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ? AND status = 'COMPLETED'
         `, [startDate, endDate]),
         this.getSlowMovingProducts(period, 50),
         this.db.query<any>(`
