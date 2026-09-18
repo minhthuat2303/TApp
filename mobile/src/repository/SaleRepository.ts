@@ -384,10 +384,17 @@ export class SaleRepository implements IRepository<SalesRecord> {
     const { productRepository } = await import('./ProductRepository');
     productRepository.clearMemoryCache();
 
+    const orderData: any = res.data?.order || {
+      id: input.orderId,
+      status: 'CANCELLED',
+      cancel_reason: input.reason,
+    };
+
     return {
-      success: true,
+      order: orderData,
+      restoredItemsCount: Number(res.data?.restoredItemsCount || 0),
       restoredQuantity: Number(res.data?.restoredQuantity || 0),
-      order: null,
+      message: res.data?.message || 'Hủy đơn hàng thành công',
     };
   }
 
