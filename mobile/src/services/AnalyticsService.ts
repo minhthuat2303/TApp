@@ -1916,7 +1916,7 @@ export class AnalyticsService {
       const res = await apiClient.get<any>(Endpoints.INVENTORY, {
         params: { lowStock: 'true' }
       });
-      const items = res.data?.data?.items;
+      const items = (res.data as any)?.items || (res.data as any)?.data?.items;
       if (Array.isArray(items)) {
         return items
           .filter((p: any) => Number(p.current_stock || 0) <= Number(p.min_stock_alert || 0))

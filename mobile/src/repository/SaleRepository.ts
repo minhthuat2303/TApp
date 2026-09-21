@@ -97,8 +97,12 @@ export class SaleRepository implements IRepository<SalesRecord> {
 
       const res = await apiClient.post<any[]>(Endpoints.SALES, payload);
 
-      if (res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const createdRecords = res.data;
+      const rawData: any = res.data;
+      const createdRecords: any[] = Array.isArray(rawData)
+        ? rawData
+        : (rawData && typeof rawData === 'object' && rawData.id ? [rawData] : []);
+
+      if (createdRecords.length > 0) {
         const now = new Date();
         const clientOrderId = input.clientOrderId || `ord-cloud-${now.getTime()}`;
         const orderCode = createdRecords[0]?.transaction_code || `ORD-${now.getTime().toString().slice(-6)}`;

@@ -27,8 +27,12 @@ import categoryRepository from '../../repository/CategoryRepository';
 import fileImportService, { ProductImportRow, FileImportPreview } from '../../services/FileImportService';
 import exportService from '../../services/ExportService';
 import { Product, Category, ProductStatus } from '../../types/domain';
+import { useAuth } from '../../auth/AuthContext';
 
 export const ProductsScreen: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +160,10 @@ export const ProductsScreen: React.FC = () => {
 
   // --- Product Edit / Create Handlers ---
   const openCreateProduct = () => {
+    if (!isAdmin) {
+      showAlert('Quyền hạn', 'Tài khoản của bạn có vai trò Nhân viên. Chỉ Quản trị viên (Admin) mới có quyền tạo sản phẩm mới.');
+      return;
+    }
     setIsCreatingProduct(true);
     setSelectedProduct(null);
     setEditName('');
@@ -171,6 +179,10 @@ export const ProductsScreen: React.FC = () => {
   };
 
   const openEditProduct = (prod: Product) => {
+    if (!isAdmin) {
+      showAlert('Quyền hạn', 'Tài khoản của bạn có vai trò Nhân viên. Chỉ Quản trị viên (Admin) mới có quyền chỉnh sửa thông tin sản phẩm.');
+      return;
+    }
     setIsCreatingProduct(false);
     setSelectedProduct(prod);
     setEditName(prod.name);
@@ -250,6 +262,10 @@ export const ProductsScreen: React.FC = () => {
 
   // --- Category Management Handlers ---
   const openCategoryManager = async () => {
+    if (!isAdmin) {
+      showAlert('Quyền hạn', 'Tài khoản của bạn có vai trò Nhân viên. Chỉ Quản trị viên (Admin) mới có quyền quản lý danh mục.');
+      return;
+    }
     setCategoryModalVisible(true);
     setShowAddCategory(false);
     setEditingCategory(null);
@@ -341,6 +357,10 @@ export const ProductsScreen: React.FC = () => {
 
   // --- Product File Import Handlers ---
   const openImportModal = () => {
+    if (!isAdmin) {
+      showAlert('Quyền hạn', 'Tài khoản của bạn có vai trò Nhân viên. Chỉ Quản trị viên (Admin) mới có quyền nhập file CSV.');
+      return;
+    }
     setCsvInput('');
     setImportPreview(null);
     setImportModalVisible(true);
@@ -436,38 +456,56 @@ export const ProductsScreen: React.FC = () => {
       <View style={styles.container}>
         {/* Top Actions & Shortcuts */}
         <View style={styles.topToolbar}>
-          <TouchableOpacity 
-            style={styles.toolBtn} 
-            onPress={openCategoryManager}
-            accessibilityLabel="Quản lý danh mục"
-          >
-            <Text style={styles.toolBtnText}>📁 Danh mục</Text>
-          </TouchableOpacity>
+          {isAdmin ? (
+            <>
+              <TouchableOpacity 
+                style={styles.toolBtn} 
+                onPress={openCategoryManager}
+                accessibilityLabel="Quản lý danh mục"
+              >
+                <Text style={styles.toolBtnText}>📁 Danh mục</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.toolBtn} 
-            onPress={openImportModal}
-            accessibilityLabel="Nhập sản phẩm từ file CSV"
-          >
-            <Text style={styles.toolBtnText}>📥 Nhập File</Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.toolBtn} 
+                onPress={openImportModal}
+                accessibilityLabel="Nhập sản phẩm từ file CSV"
+              >
+                <Text style={styles.toolBtnText}>📥 Nhập File</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.toolBtn} 
-            onPress={openExportMenu}
-            disabled={exportingData}
-            accessibilityLabel="Xuất danh sách sản phẩm hoặc danh mục ra file CSV"
-          >
-            <Text style={styles.toolBtnText}>{exportingData ? '⏳...' : '📤 Xuất File'}</Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.toolBtn} 
+                onPress={openExportMenu}
+                disabled={exportingData}
+                accessibilityLabel="Xuất danh sách sản phẩm hoặc danh mục ra file CSV"
+              >
+                <Text style={styles.toolBtnText}>{exportingData ? '⏳...' : '📤 Xuất File'}</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.toolBtn, styles.toolBtnPrimary]} 
-            onPress={openCreateProduct}
-            accessibilityLabel="Thêm sản phẩm mới"
-          >
-            <Text style={[styles.toolBtnText, styles.toolBtnPrimaryText]}>+ Thêm SP</Text>
-          </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.toolBtn, styles.toolBtnPrimary]} 
+                onPress={openCreateProduct}
+                accessibilityLabel="Thêm sản phẩm mới"
+              >
+                <Text style={[styles.toolBtnText, styles.toolBtnPrimaryText]}>+ Thêm SP</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity 
+                style={styles.toolBtn} 
+                onPress={openExportMenu}
+                disabled={exportingData}
+                accessibilityLabel="Xuất danh sách sản phẩm hoặc danh mục ra file CSV"
+              >
+                <Text style={styles.toolBtnText}>{exportingData ? '⏳...' : '📤 Xuất File'}</Text>
+              </TouchableOpacity>
+              <View style={{ flex: 1, alignItems: 'flex-end', justifyContent: 'center' }}>
+                <Badge label="👤 Vai trò: Nhân viên" variant="neutral" />
+              </View>
+            </>
+          )}
         </View>
 
         {/* Search Bar */}
@@ -785,13 +823,19 @@ export const ProductsScreen: React.FC = () => {
                       ) : null}
                     </Card>
 
-                    <View style={styles.actionRow}>
-                      <Button
-                        title="✏️ Chỉnh sửa thông tin"
-                        onPress={() => openEditProduct(selectedProduct)}
-                        variant="primary"
-                      />
-                    </View>
+                    {isAdmin ? (
+                      <View style={styles.actionRow}>
+                        <Button
+                          title="✏️ Chỉnh sửa thông tin"
+                          onPress={() => openEditProduct(selectedProduct)}
+                          variant="primary"
+                        />
+                      </View>
+                    ) : (
+                      <View style={{ padding: 12, backgroundColor: '#F8FAFC', borderRadius: 8, alignItems: 'center', marginTop: 12 }}>
+                        <Text style={{ fontSize: 13, color: '#64748B', fontWeight: '500' }}>🔒 Chức năng chỉnh sửa thông tin dành cho Quản trị viên (Admin)</Text>
+                      </View>
+                    )}
                   </View>
                 )}
 

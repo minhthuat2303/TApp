@@ -145,29 +145,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           syncEngine.sync().catch(e => logger.warn('AuthContext', 'Auto-sync after login failed', e));
         } catch {}
       }
-    } catch (err) {
-      // Offline-first fallback: when server is unreachable or app is offline
-      const isValidAdmin = credentials.username === 'admin' && (credentials.password === 'admin123' || credentials.password === 'admin' || !credentials.password);
-      const isValidStaff = credentials.username === 'staff' && (credentials.password === 'staff123' || credentials.password === 'staff' || !credentials.password);
-
-      if (isValidAdmin || isValidStaff) {
-        const isAdm = credentials.username === 'admin';
-        const offlineUser: UserSession = {
-          id: isAdm ? 1 : 2,
-          username: credentials.username,
-          full_name: isAdm ? 'Quản Trị Viên (Admin)' : 'Nhân Viên Bán Hàng (Staff)',
-          role: isAdm ? 'ADMIN' : 'STAFF',
-        };
-        const offlineToken = `offline-jwt-token-${credentials.username}`;
-        await tokenStorage.setToken(offlineToken);
-        await tokenStorage.setUser(offlineUser);
-        setToken(offlineToken);
-        setUser(offlineUser);
-        setAuthStatus('AUTHENTICATED');
-        setRevocationReason(null);
-        logger.info('AuthContext', `Offline login fallback granted for ${credentials.username} on ${Platform.OS}`);
-        return;
-      }
+    } catch (err: any) {
+      logger.error('AuthContext', 'Login failed', err);
       throw err;
     } finally {
       setIsLoading(false);

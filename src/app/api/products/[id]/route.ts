@@ -51,10 +51,14 @@ export async function PUT(request: NextRequest, props: Props) {
     const body = await request.json();
     const {
       name,
+      sku,
       category_id,
       product_type_id,
       min_stock_alert,
       status,
+      selling_price,
+      current_selling_price,
+      description,
     } = body;
 
     const oldProduct = await db.queryOne<any>('SELECT * FROM products WHERE id = ?', [id]);
@@ -65,21 +69,53 @@ export async function PUT(request: NextRequest, props: Props) {
       );
     }
 
+    let finalSku = oldProduct.sku;
+    if (sku && sku.trim().toUpperCase() !== oldProduct.sku) {
+      finalSku = sku.trim().toUpperCase();
+      const existingSku = await db.queryOne<any>('SELECT id FROM products WHERE sku = ? AND id != ?', [finalSku, id]);
+      if (existingSku) {
+        return NextResponse.json(
+          { success: false, error: { code: 'DUPLICATE_SKU', message: `Mã SKU '${finalSku}' đã tồn tại ở sản phẩm khác.` } },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Process selling price change and record price history
+    const effectivePriceInput = selling_price !== undefined ? selling_price : current_selling_price;
+    let newSellingPrice = oldProduct.current_selling_price;
+    if (effectivePriceInput !== undefined && effectivePriceInput !== null && !isNaN(Number(effectivePriceInput))) {
+      const parsedPrice = Number(effectivePriceInput);
+      if (parsedPrice >= 0 && parsedPrice !== Number(oldProduct.current_selling_price)) {
+        newSellingPrice = parsedPrice;
+        await db.execute(`
+          INSERT INTO price_history (product_id, price, effective_from, note, created_by)
+          VALUES (?, ?, CURRENT_DATE, 'Cập nhật giá bán', ?)
+        `, [id, newSellingPrice, user.id]);
+      }
+    }
+
     await db.execute(`
       UPDATE products
       SET name = COALESCE(?, name),
+          sku = ?,
           category_id = COALESCE(?, category_id),
           product_type_id = COALESCE(?, product_type_id),
           min_stock_alert = COALESCE(?, min_stock_alert),
+          current_selling_price = ?,
+          description = COALESCE(?, description),
           status = COALESCE(?, status),
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [
-      name?.trim(),
-      category_id,
-      product_type_id,
+      name?.trim() || null,
+      finalSku,
+      category_id || null,
+      product_type_id || null,
       min_stock_alert !== undefined ? Number(min_stock_alert) : oldProduct.min_stock_alert,
-      status,
+      newSellingPrice,
+      description !== undefined ? description : null,
+      status || null,
       id
     ]);
 
