@@ -419,6 +419,10 @@ export async function ensurePgSchema() {
               ALTER TABLE processed_sync_transactions ADD COLUMN IF NOT EXISTS device_id VARCHAR(100);
             EXCEPTION WHEN others THEN NULL;
             END;
+            BEGIN
+              ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+            EXCEPTION WHEN others THEN NULL;
+            END;
           END $$;
         `);
       } catch {}

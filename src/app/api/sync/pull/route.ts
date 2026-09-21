@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     // 8. Fetch sale cost allocations
     const saleCostAllocations = await db.query(`
-      SELECT id, sale_id, inventory_lot_id, allocated_quantity, allocated_unit_cost, total_cost, created_at
+      SELECT id, sale_id, inventory_lot_id, quantity AS allocated_quantity, unit_cost AS allocated_unit_cost, total_cost, created_at
       FROM sale_cost_allocations
       WHERE created_at > ?
       ORDER BY created_at ASC, id ASC

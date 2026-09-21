@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN users u ON u.id = sr.created_by
         WHERE DATE(sr.sale_date) >= ? AND DATE(sr.sale_date) <= ? 
           AND COALESCE(sr.status, 'COMPLETED') = 'COMPLETED'
-        GROUP BY COALESCE(u.id, sr.created_by, 1), u.username, u.full_name, u.role
+        GROUP BY sr.created_by, u.id, u.username, u.full_name, u.role
         ORDER BY net_revenue DESC
       `, [startDate, endDate]);
 
@@ -197,6 +197,65 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: categories,
+      });
+    }
+
+    // 4b. DISCOUNT ANALYSIS
+    if (type === 'discount') {
+      const [summaryRow, topRows] = await Promise.all([
+        db.queryOne<any>(`
+          SELECT 
+            COALESCE(SUM(quantity * unit_price_at_sale), 0) as gross_sales,
+            COALESCE(SUM(discount), 0) as total_discount,
+            COUNT(DISTINCT COALESCE(transaction_code, id::text)) as total_orders,
+            COUNT(DISTINCT CASE WHEN discount > 0 THEN COALESCE(transaction_code, id::text) END) as discounted_orders
+          FROM sales_records
+          WHERE DATE(sale_date) >= ? AND DATE(sale_date) <= ? 
+            AND COALESCE(status, 'COMPLETED') = 'COMPLETED'
+        `, [startDate, endDate]),
+        db.query<any>(`
+          SELECT 
+            p.id as product_id,
+            p.name,
+            p.sku,
+            COALESCE(SUM(sr.discount), 0) as discount_total,
+            COALESCE(SUM(CASE WHEN sr.discount > 0 THEN sr.quantity ELSE 0 END), 0) as units_discounted
+          FROM sales_records sr
+          JOIN products p ON p.id = sr.product_id
+          WHERE DATE(sr.sale_date) >= ? AND DATE(sr.sale_date) <= ? 
+            AND COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' 
+            AND sr.discount > 0
+          GROUP BY p.id, p.name, p.sku
+          ORDER BY discount_total DESC
+          LIMIT 5
+        `, [startDate, endDate])
+      ]);
+
+      const grossSales = Number(summaryRow?.gross_sales || 0);
+      const totalDiscount = Number(summaryRow?.total_discount || 0);
+      const ordersTotalCount = Number(summaryRow?.total_orders || 0);
+      const ordersWithDiscountCount = Number(summaryRow?.discounted_orders || 0);
+      const discountPercentageOfGross = grossSales > 0 ? Math.round((totalDiscount / grossSales) * 1000) / 10 : 0;
+      const averageDiscountPerDiscountedOrder = ordersWithDiscountCount > 0 ? Math.round(totalDiscount / ordersWithDiscountCount) : 0;
+      const discountRatio = ordersTotalCount > 0 ? Math.round((ordersWithDiscountCount / ordersTotalCount) * 1000) / 10 : 0;
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          totalDiscount,
+          ordersWithDiscountCount,
+          ordersWithDiscountPercent: discountRatio,
+          averageDiscountPerDiscountedOrder,
+          discountPercentageOfGross,
+          discountToRevenueRatio: discountPercentageOfGross,
+          topDiscountedProducts: topRows.map(r => ({
+            productId: Number(r.product_id),
+            name: String(r.name),
+            sku: String(r.sku),
+            discountTotal: Number(r.discount_total || 0),
+            unitsDiscounted: Number(r.units_discounted || 0),
+          })),
+        },
       });
     }
 

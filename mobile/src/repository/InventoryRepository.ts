@@ -1,10 +1,8 @@
 import { StockMovement, InventoryLot } from '../types/domain';
 import { StockStatus, ImportRecord } from '../database/types';
 import { IRepository, IRemoteDataSource } from './base';
-import { SqliteInventoryDataSource } from './sqlite/SqliteInventoryDataSource';
-import offlineInventoryService, { OfflineInventoryService } from '../services/OfflineInventoryService';
 import { CreateImportInput, ImportResult, StockAdjustmentInput, StockAdjustmentResult, PriceHistoryRecord, CostHistoryRecord } from '../services/types';
-import databaseService, { DatabaseService } from '../database/DatabaseService';
+import productRepository from './ProductRepository';
 import apiClient from '../api/client';
 import Endpoints from '../api/endpoints';
 import logger from '../utils/logger';
@@ -22,94 +20,190 @@ class InventoryRemoteDataSource implements IRemoteDataSource<StockMovement> {
 }
 
 export class InventoryRepository implements IRepository<StockMovement> {
-  private localSource: SqliteInventoryDataSource;
   private remoteSource: IRemoteDataSource<StockMovement>;
-  private inventoryService: OfflineInventoryService;
-  private db: DatabaseService;
 
-  constructor(
-    local?: SqliteInventoryDataSource,
-    remote?: IRemoteDataSource<StockMovement>,
-    inventoryService?: OfflineInventoryService,
-    db?: DatabaseService
-  ) {
-    this.localSource = local || new SqliteInventoryDataSource();
+  constructor(remote?: IRemoteDataSource<StockMovement>) {
     this.remoteSource = remote || new InventoryRemoteDataSource();
-    this.inventoryService = inventoryService || offlineInventoryService;
-    this.db = db || databaseService;
   }
 
-  setLocalDataSource(local: SqliteInventoryDataSource): void {
-    this.localSource = local;
-  }
-
-  async getAll(forceRemote = false): Promise<StockMovement[]> {
-    if (!forceRemote) {
-      const local = await this.localSource.getStockMovements(undefined, 50);
-      if (local.length > 0) return local;
-    }
-
+  async getAll(): Promise<StockMovement[]> {
     try {
-      const remote = await this.remoteSource.getAll({ limit: 30 });
-      return remote;
+      return await this.remoteSource.getAll({ limit: 50 });
     } catch (err) {
-      logger.warn('InventoryRepository', 'Failed to fetch inventory movements, returning local SQLite', err);
-      return await this.localSource.getStockMovements(undefined, 50);
+      logger.error('InventoryRepository', 'Failed to fetch inventory movements from Supabase Cloud', err);
+      return [];
     }
   }
 
   async getById(id: number | string): Promise<StockMovement | null> {
-    const movements = await this.localSource.getStockMovements(undefined, 100);
-    const local = movements.find((m) => m.id === Number(id));
-    if (local) return local;
     return await this.remoteSource.getById(id);
   }
 
   async getStockStatus(productId: number): Promise<StockStatus> {
-    return await this.localSource.getStockStatus(productId);
+    const prods = await productRepository.getAll();
+    const p = prods.find(item => item.id === productId);
+    const currentStock = Number(p?.current_stock || 0);
+    return {
+      productId,
+      serverStock: currentStock,
+      pendingDelta: 0,
+      effectiveStock: currentStock,
+    };
   }
 
   async getAllStockStatuses(): Promise<StockStatus[]> {
-    return await this.localSource.getAllStockStatuses();
+    const prods = await productRepository.getAll();
+    return prods.map((p) => {
+      const currentStock = Number(p.current_stock || 0);
+      return {
+        productId: p.id,
+        serverStock: currentStock,
+        pendingDelta: 0,
+        effectiveStock: currentStock,
+      };
+    });
   }
 
   async getInventoryLots(productId?: number): Promise<InventoryLot[]> {
-    return await this.localSource.getInventoryLots(productId);
+    try {
+      const res = await apiClient.get<any>(Endpoints.INVENTORY_LOTS, {
+        params: productId ? { productId } : undefined
+      });
+      const lots = res.data;
+      if (Array.isArray(lots)) {
+        return lots.map((l: any) => ({
+          id: Number(l.id),
+          lot_code: String(l.lot_code),
+          product_id: Number(l.product_id),
+          purchase_date: String(l.purchase_date),
+          quantity_received: Number(l.quantity_received),
+          quantity_remaining: Number(l.quantity_remaining),
+          unit_cost: Number(l.unit_cost),
+          supplier_id: l.supplier_id ? Number(l.supplier_id) : null,
+          import_id: l.import_id ? Number(l.import_id) : null,
+          note: l.note || null,
+          created_by: l.created_by ? Number(l.created_by) : 1,
+          created_at: String(l.created_at),
+          product_name: l.product_name,
+          sku: l.sku,
+          supplier_name: l.supplier_name,
+        }));
+      }
+      return [];
+    } catch (err) {
+      logger.error('InventoryRepository', 'Failed to fetch inventory lots from Supabase Cloud', err);
+      return [];
+    }
   }
 
   async getStockMovements(productId?: number, limit = 50): Promise<StockMovement[]> {
-    return await this.localSource.getStockMovements(productId, limit);
+    try {
+      const res = await apiClient.get<any[]>(Endpoints.INVENTORY_MOVEMENTS, {
+        params: { ...(productId ? { productId } : {}), limit }
+      });
+      if (Array.isArray(res.data)) {
+        return res.data.map((m: any) => ({
+          id: Number(m.id),
+          product_id: Number(m.product_id),
+          movement_type: m.movement_type,
+          quantity_change: Number(m.quantity_change),
+          balance_after: Number(m.balance_after),
+          movement_date: String(m.movement_date),
+          reference_type: m.reference_type,
+          reference_id: m.reference_id,
+          note: m.note,
+          created_by: m.created_by,
+          created_at: m.created_at,
+          product_name: m.product_name,
+          sku: m.sku,
+        }));
+      }
+      return [];
+    } catch (err) {
+      logger.error('InventoryRepository', 'Failed to fetch stock movements from Supabase Cloud', err);
+      return [];
+    }
   }
 
-  // Offline stock receipt (Nhập kho)
+  // Pure Online Stock Receipt (Nhập kho -> Supabase PostgreSQL via Vercel API)
   async createStockReceipt(input: CreateImportInput): Promise<ImportResult> {
-    return await this.inventoryService.createStockReceipt(input);
+    const payload = {
+      items: input.items.map(it => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        unitCostPrice: it.unitCostPrice,
+      })),
+      supplierId: input.supplierId,
+      note: input.note,
+      importDate: input.importDate || new Date().toISOString().split('T')[0],
+    };
+
+    const res = await apiClient.post<any>(Endpoints.INVENTORY_RECEIPTS, payload);
+    if (!res.data) {
+      throw new Error(res.error?.message || 'Không nhận được phản hồi từ máy chủ Supabase.');
+    }
+
+    // Invalidate product memory cache so stock updates instantly
+    productRepository.clearMemoryCache();
+
+    return res.data;
   }
 
-  // Offline stock adjustment (Điều chỉnh kho)
+  // Pure Online Stock Adjustment (Điều chỉnh kho -> Supabase PostgreSQL via Vercel API)
   async adjustStock(input: StockAdjustmentInput): Promise<StockAdjustmentResult> {
-    return await this.inventoryService.adjustStock(input);
+    const payload = {
+      productId: input.productId,
+      movementType: input.movementType,
+      quantityChange: input.quantityChange,
+      movementDate: input.movementDate,
+      note: input.note,
+    };
+
+    const res = await apiClient.post<any>(Endpoints.INVENTORY_ADJUSTMENTS, payload);
+    if (!res.data) {
+      throw new Error(res.error?.message || 'Không thể ghi nhận điều chỉnh kho trên Supabase.');
+    }
+
+    // Invalidate product memory cache so stock updates instantly
+    productRepository.clearMemoryCache();
+
+    return res.data;
   }
 
   async getPriceHistory(productId: number): Promise<PriceHistoryRecord[]> {
-    return await this.localSource.getPriceHistory(productId);
+    return await productRepository.getPriceHistory(productId);
   }
 
   async getCostHistory(productId: number): Promise<CostHistoryRecord[]> {
-    return await this.localSource.getCostHistory(productId);
+    return await productRepository.getCostHistory(productId);
   }
 
   async getInventorySummary(): Promise<{ totalProducts: number; totalStock: number; totalValuation: number; lowStockCount: number }> {
-    return await this.localSource.getInventorySummary();
+    try {
+      const res = await apiClient.get<any>(Endpoints.INVENTORY);
+      const summary = res.data?.summary;
+      if (summary) {
+        return {
+          totalProducts: Number(summary.totalProducts || 0),
+          totalStock: Number(summary.totalStock || 0),
+          totalValuation: Number(summary.totalValuation || 0),
+          lowStockCount: Number(summary.lowStockCount || 0),
+        };
+      }
+    } catch (err) {
+      logger.error('InventoryRepository', 'Failed to fetch inventory summary from Supabase Cloud', err);
+    }
+    return { totalProducts: 0, totalStock: 0, totalValuation: 0, lowStockCount: 0 };
   }
 
   async getAllImports(limit = 50, offset = 0): Promise<ImportRecord[]> {
     try {
-      return await this.db.query<ImportRecord>(`
-        SELECT * FROM imports ORDER BY id DESC LIMIT ? OFFSET ?
-      `, [limit, offset]);
+      const res = await apiClient.get<any[]>(Endpoints.INVENTORY_RECEIPTS, {
+        params: { limit, offset }
+      });
+      return (res.data || []) as ImportRecord[];
     } catch (err) {
-      logger.error('InventoryRepository', 'Failed to get imports', err);
+      logger.error('InventoryRepository', 'Failed to get imports from Supabase Cloud', err);
       return [];
     }
   }

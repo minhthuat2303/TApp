@@ -1,10 +1,8 @@
 import { SalesRecord } from '../types/domain';
 import { SalesOrder } from '../database/types';
 import { IRepository, IRemoteDataSource } from './base';
-import { SqliteSaleDataSource, CreateSaleInput, TodaySalesSummary } from './sqlite/SqliteSaleDataSource';
-import offlineSaleService, { OfflineSaleService } from '../services/OfflineSaleService';
+import { CreateSaleInput, TodaySalesSummary } from './sqlite/SqliteSaleDataSource';
 import { CreateSaleOrderInput, SaleOrderResult, CancelSaleOrderInput, CancelSaleOrderResult } from '../services/types';
-import databaseService, { DatabaseService } from '../database/DatabaseService';
 import apiClient from '../api/client';
 import Endpoints from '../api/endpoints';
 import logger from '../utils/logger';
@@ -22,27 +20,12 @@ class SaleRemoteDataSource implements IRemoteDataSource<SalesRecord> {
 }
 
 export class SaleRepository implements IRepository<SalesRecord> {
-  private localSource: SqliteSaleDataSource;
   private remoteSource: IRemoteDataSource<SalesRecord>;
-  private saleService: OfflineSaleService;
-  private db: DatabaseService;
   private historyCache: { data: SalesOrder[]; timestamp: number } | null = null;
-  private readonly CACHE_TTL_MS = 15000; // 15s cache TTL for lightning-fast sub-second UX
+  private readonly CACHE_TTL_MS = 15000; // 15s cache TTL
 
-  constructor(
-    local?: SqliteSaleDataSource,
-    remote?: IRemoteDataSource<SalesRecord>,
-    saleService?: OfflineSaleService,
-    db?: DatabaseService
-  ) {
-    this.localSource = local || new SqliteSaleDataSource();
+  constructor(remote?: IRemoteDataSource<SalesRecord>) {
     this.remoteSource = remote || new SaleRemoteDataSource();
-    this.saleService = saleService || offlineSaleService;
-    this.db = db || databaseService;
-  }
-
-  setLocalDataSource(local: SqliteSaleDataSource): void {
-    this.localSource = local;
   }
 
   clearCache(): void {
@@ -50,11 +33,6 @@ export class SaleRepository implements IRepository<SalesRecord> {
   }
 
   async getAll(forceRemote = false, createdBy?: number): Promise<SalesRecord[]> {
-    if (!forceRemote) {
-      const local = await this.localSource.getAllSales({ limit: 50, createdBy });
-      if (local.length > 0) return local;
-    }
-
     try {
       const remote = await this.remoteSource.getAll({ limit: 100 });
       if (createdBy !== undefined) {
@@ -62,181 +40,131 @@ export class SaleRepository implements IRepository<SalesRecord> {
       }
       return remote;
     } catch (err) {
-      logger.warn('SaleRepository', 'Failed to fetch remote sales, returning local SQLite', err);
-      return await this.localSource.getAllSales({ limit: 50, createdBy });
+      logger.error('SaleRepository', 'Failed to fetch remote sales from Supabase Cloud', err);
+      return [];
     }
   }
 
   async getById(id: number | string): Promise<SalesRecord | null> {
-    const all = await this.localSource.getAllSales({ limit: 200 });
-    const local = all.find((s) => s.id === Number(id) || s.client_transaction_id === String(id));
-    if (local) return local;
     return await this.remoteSource.getById(id);
   }
 
   async createSale(input: CreateSaleInput): Promise<SalesRecord> {
-    return await this.localSource.createLocalSale(input);
+    const res = await apiClient.post<any>(Endpoints.SALES, {
+      saleDate: new Date().toISOString().split('T')[0],
+      items: [{
+        productId: input.productId,
+        quantity: input.quantity,
+        discountThousand: ((input.discount || 0) / 1000),
+        note: input.note,
+      }],
+      note: input.note,
+    });
+    if (res.data) {
+      const rec = Array.isArray(res.data) ? res.data[0] : res.data;
+      return rec as SalesRecord;
+    }
+    throw new Error('Không thể tạo đơn bán hàng trên Supabase.');
   }
 
   // --- MULTI-ITEM CHECKOUT: DIRECT SUPABASE CLOUD TRANSACTION ---
   async createMultiItemSale(input: CreateSaleOrderInput): Promise<SaleOrderResult> {
     this.clearCache();
 
-    // 1. Attempt Direct Online Transaction on Supabase Cloud
-    try {
-      const payload = {
-        saleDate: input.saleDate || new Date().toISOString().split('T')[0],
-        items: input.items.map((it) => ({
-          productId: it.productId,
-          quantity: it.quantity,
-          discountThousand: ((it.discount || 0) / 1000),
-          note: it.note,
-        })),
-        note: input.note,
-      };
+    const payload = {
+      saleDate: input.saleDate || new Date().toISOString().split('T')[0],
+      items: input.items.map((it) => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        discountThousand: ((it.discount || 0) / 1000),
+        note: it.note,
+      })),
+      note: input.note,
+    };
 
-      const res = await apiClient.post<any[]>(Endpoints.SALES, payload);
+    const res = await apiClient.post<any[]>(Endpoints.SALES, payload);
 
-      const rawData: any = res.data;
-      const createdRecords: any[] = Array.isArray(rawData)
-        ? rawData
-        : (rawData && typeof rawData === 'object' && rawData.id ? [rawData] : []);
+    const rawData: any = res.data;
+    const createdRecords: any[] = Array.isArray(rawData)
+      ? rawData
+      : (rawData && typeof rawData === 'object' && rawData.id ? [rawData] : []);
 
-      if (createdRecords.length > 0) {
-        const now = new Date();
-        const clientOrderId = input.clientOrderId || `ord-cloud-${now.getTime()}`;
-        const orderCode = createdRecords[0]?.transaction_code || `ORD-${now.getTime().toString().slice(-6)}`;
-
-        const totalItems = createdRecords.reduce((sum, r) => sum + Number(r.quantity || 0), 0);
-        const finalAmount = createdRecords.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
-        const totalDiscount = createdRecords.reduce((sum, r) => sum + Number(r.discount || 0), 0);
-        const subtotal = finalAmount + totalDiscount;
-
-        const effectiveReceived = input.cashReceived !== undefined ? input.cashReceived : finalAmount;
-        const effectiveChange = input.cashChange !== undefined ? input.cashChange : Math.max(0, effectiveReceived - finalAmount);
-
-        const order: SalesOrder = {
-          id: createdRecords[0].id,
-          client_order_id: clientOrderId,
-          order_code: orderCode,
-          sale_date: payload.saleDate,
-          total_items: totalItems,
-          total_amount: subtotal,
-          total_discount: totalDiscount,
-          final_amount: finalAmount,
-          payment_method: input.paymentMethod || 'CASH',
-          cash_received: effectiveReceived,
-          cash_change: effectiveChange,
-          note: input.note || null,
-          status: 'COMPLETED',
-          sync_status: 'SYNCED',
-          created_by: input.createdBy ?? null,
-          created_at: now.toISOString(),
-          synced_at: now.toISOString(),
-        };
-
-        // Persist synchronously to local SQLite so both offline cache and local history are instant
-        try {
-          await this.db.withTransaction(async (tx) => {
-            const orderRes = await tx.runAsync(`
-              INSERT INTO sales_orders (
-                client_order_id, order_code, sale_date, total_amount,
-                total_discount, final_amount, total_items, payment_method, cash_received, cash_change,
-                note, status, sync_status, created_by, created_at, synced_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 'SYNCED', ?, ?, datetime('now'))
-            `, [
-              order.client_order_id, order.order_code, order.sale_date, order.total_amount,
-              order.total_discount, order.final_amount, order.total_items, order.payment_method, order.cash_received,
-              order.cash_change, order.note || null, order.created_by, order.created_at
-            ]);
-
-            const localOrderId = orderRes.lastInsertRowId;
-            order.id = localOrderId;
-
-            for (const rec of createdRecords) {
-              await tx.runAsync(`
-                INSERT INTO sales_records (
-                  client_transaction_id, server_id, transaction_code, product_id, sale_date,
-                  quantity, unit_price_at_sale, cost_price_at_sale, discount, total_revenue,
-                  total_cost, profit, status, sync_status, note, created_by, created_at, synced_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPLETED', 'SYNCED', ?, ?, ?, datetime('now'))
-              `, [
-                rec.transaction_code, rec.id, rec.transaction_code, rec.product_id, rec.sale_date,
-                rec.quantity, rec.unit_price_at_sale, rec.cost_price_at_sale, rec.discount || 0, rec.total_revenue,
-                rec.total_cost, rec.profit, rec.note || null, rec.created_by, rec.created_at || now.toISOString()
-              ]);
-
-              // Update stock locally
-              await tx.runAsync(`
-                UPDATE products SET current_stock = MAX(0, current_stock - ?) WHERE id = ?
-              `, [rec.quantity, rec.product_id]);
-            }
-          });
-        } catch (localSaveErr) {
-          logger.warn('SaleRepository', 'Warning: Failed to cache cloud sale to local SQLite', localSaveErr);
-        }
-
-        // Invalidate ProductRepository RAM cache to ensure next product fetch reflects new stock
-        const { productRepository } = await import('./ProductRepository');
-        productRepository.clearMemoryCache();
-
-        return { order, items: createdRecords };
-      }
-      throw new Error('Máy chủ Supabase không trả về bản ghi đơn hàng hợp lệ.');
-    } catch (err: any) {
-      logger.error('SaleRepository', 'Direct Supabase checkout failed', err);
-      throw new Error(err?.message || 'Không thể tạo đơn hàng trên máy chủ Supabase. Vui lòng kiểm tra kết nối mạng.');
+    if (createdRecords.length === 0) {
+      throw new Error(res.error?.message || 'Máy chủ không trả về chi tiết đơn bán hàng.');
     }
+
+    const now = new Date();
+    const clientOrderId = input.clientOrderId || `ord-cloud-${now.getTime()}`;
+    const orderCode = createdRecords[0]?.transaction_code || `ORD-${now.getTime().toString().slice(-6)}`;
+
+    const totalItems = createdRecords.reduce((sum, r) => sum + Number(r.quantity || 0), 0);
+    const finalAmount = createdRecords.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
+    const totalDiscount = createdRecords.reduce((sum, r) => sum + Number(r.discount || 0), 0);
+    const subtotal = finalAmount + totalDiscount;
+
+    const effectiveReceived = input.cashReceived !== undefined ? input.cashReceived : finalAmount;
+    const effectiveChange = input.cashChange !== undefined ? input.cashChange : Math.max(0, effectiveReceived - finalAmount);
+
+    const order: SalesOrder = {
+      id: createdRecords[0].id,
+      client_order_id: clientOrderId,
+      order_code: orderCode,
+      sale_date: payload.saleDate,
+      total_items: totalItems,
+      total_amount: subtotal,
+      total_discount: totalDiscount,
+      final_amount: finalAmount,
+      payment_method: input.paymentMethod || 'CASH',
+      cash_received: effectiveReceived,
+      cash_change: effectiveChange,
+      note: input.note || null,
+      status: 'COMPLETED',
+      sync_status: 'SYNCED',
+      created_by: input.createdBy ?? null,
+      created_at: now.toISOString(),
+      synced_at: now.toISOString(),
+    };
+
+    // Invalidate ProductRepository RAM cache to ensure next product fetch reflects new stock
+    const { productRepository } = await import('./ProductRepository');
+    productRepository.clearMemoryCache();
+
+    return {
+      order,
+      items: createdRecords,
+    };
   }
 
-  async getAllOrders(limit = 50, offset = 0, createdBy?: number): Promise<SalesOrder[]> {
-    try {
-      if (createdBy !== undefined) {
-        return await this.db.query<SalesOrder>(`
-          SELECT * FROM sales_orders WHERE created_by = ? ORDER BY id DESC LIMIT ? OFFSET ?
-        `, [createdBy, limit, offset]);
-      }
-      return await this.db.query<SalesOrder>(`
-        SELECT * FROM sales_orders ORDER BY id DESC LIMIT ? OFFSET ?
-      `, [limit, offset]);
-    } catch (err) {
-      logger.error('SaleRepository', 'Failed to get sales orders', err);
-      return [];
-    }
-  }
-
-  async getPendingSales(createdBy?: number): Promise<SalesRecord[]> {
-    return await this.localSource.getPendingSales(createdBy);
-  }
-
-  async getPendingSyncCount(userId?: number): Promise<number> {
-    return await this.localSource.getPendingSyncCount(userId);
-  }
-
-  // --- SALES HISTORY: DIRECT SUPABASE CLOUD SYNC & LOCAL CACHE ---
-  async getSalesHistory(params?: {
-    search?: string;
-    status?: string;
+  // --- SALES ORDERS HISTORY: DIRECT SUPABASE CLOUD QUERY ---
+  async getSalesOrders(params?: {
     startDate?: string;
     endDate?: string;
+    status?: string;
     paymentMethod?: string;
-    createdBy?: number;
+    search?: string;
     limit?: number;
     offset?: number;
   }): Promise<SalesOrder[]> {
     const now = Date.now();
 
-    // 1. Instant Cache Return (if no custom search and within TTL)
+    // 1. RAM Cache Hit for Instant Filter Tabs (< 15s)
     if (!params?.search && this.historyCache && (now - this.historyCache.timestamp < this.CACHE_TTL_MS)) {
-      return this.historyCache.data;
+      let filtered = this.historyCache.data;
+      if (params?.status && params.status !== 'ALL') {
+        filtered = filtered.filter((o) => o.status === params.status);
+      }
+      if (params?.startDate) {
+        filtered = filtered.filter((o) => o.sale_date >= params.startDate!);
+      }
+      if (params?.endDate) {
+        filtered = filtered.filter((o) => o.sale_date <= params.endDate!);
+      }
+      return filtered;
     }
 
-    // 2. Direct Online Fetch from Supabase Cloud API
+    // 2. Fetch directly from Cloud API
     try {
-      const queryParams: Record<string, any> = {
-        limit: params?.limit || 100,
-        offset: params?.offset || 0,
-      };
+      const queryParams: Record<string, any> = { limit: params?.limit || 100 };
       if (params?.startDate) queryParams.startDate = params.startDate;
       if (params?.endDate) queryParams.endDate = params.endDate;
       if (params?.status && params.status !== 'ALL') queryParams.status = params.status;
@@ -245,7 +173,6 @@ export class SaleRepository implements IRepository<SalesRecord> {
       const res = await apiClient.get<any[]>(Endpoints.SALES, { params: queryParams });
 
       if (res.data && Array.isArray(res.data)) {
-        // Group individual sales records by transaction_code into SalesOrder objects
         const orderMap = new Map<string, SalesOrder>();
 
         for (const r of res.data) {
@@ -289,25 +216,31 @@ export class SaleRepository implements IRepository<SalesRecord> {
         return cloudOrders;
       }
     } catch (err) {
-      logger.warn('SaleRepository', 'Failed to fetch sales history from Supabase Cloud, falling back to local SQLite', err);
+      logger.error('SaleRepository', 'Failed to fetch sales history from Supabase Cloud', err);
     }
 
-    // 3. Fallback to Local SQLite
-    return await this.localSource.getSalesOrders(params);
+    return [];
+  }
+
+  async getSalesHistory(params?: {
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+    paymentMethod?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<SalesOrder[]> {
+    return this.getSalesOrders(params);
   }
 
   async getSaleOrderDetail(orderIdOrClientOrderId: number | string): Promise<{
     order: SalesOrder;
     items: Array<SalesRecord & { product_name: string; sku: string; category_name?: string }>;
   } | null> {
-    // 1. Try local SQLite first for speed
-    const local = await this.localSource.getSaleOrderDetail(orderIdOrClientOrderId);
-    if (local) return local;
-
-    // 2. Fetch directly from Cloud API if not present in local SQLite
     try {
       const res = await apiClient.get<any[]>(Endpoints.SALES, {
-        params: { q: String(orderIdOrClientOrderId), limit: 20 }
+        params: { q: String(orderIdOrClientOrderId), limit: 50 }
       });
 
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
@@ -367,7 +300,7 @@ export class SaleRepository implements IRepository<SalesRecord> {
         return { order, items };
       }
     } catch (err) {
-      logger.warn('SaleRepository', 'Failed to fetch order detail from Supabase Cloud', err);
+      logger.error('SaleRepository', 'Failed to fetch order detail from Supabase Cloud', err);
     }
 
     return null;
@@ -403,7 +336,21 @@ export class SaleRepository implements IRepository<SalesRecord> {
   }
 
   async getTodaySummary(createdBy?: number): Promise<TodaySalesSummary> {
-    return await this.localSource.getTodaySummary(createdBy);
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: { type: 'overview', period: 'today', userId: createdBy }
+      });
+      if (res.data) {
+        return {
+          totalOrders: Number(res.data.salesCount || 0),
+          totalRevenue: Number(res.data.revenue || 0),
+          totalProfit: Number(res.data.profit || 0),
+        };
+      }
+    } catch (err) {
+      logger.error('SaleRepository', 'Failed to fetch today summary from Cloud API', err);
+    }
+    return { totalOrders: 0, totalRevenue: 0, totalProfit: 0 };
   }
 }
 
