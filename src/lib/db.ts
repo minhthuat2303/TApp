@@ -462,6 +462,8 @@ export async function queryOne<T = any>(sqlText: string, params: any[] = []): Pr
   return rows.length > 0 ? rows[0] : null;
 }
 
+const TABLES_WITHOUT_ID = new Set(['devices', 'user_sessions']);
+
 export async function execute(sqlText: string, params: any[] = []): Promise<{ rowCount: number; lastInsertId?: number }> {
   // Invalidate in-memory server cache when write operations occur
   serverCache.invalidateAll();
@@ -472,9 +474,21 @@ export async function execute(sqlText: string, params: any[] = []): Promise<{ ro
     
     const isInsert = /^\s*INSERT\s+INTO/i.test(pgSql);
     const hasReturning = /RETURNING/i.test(pgSql);
+    const match = /^\s*INSERT\s+INTO\s+([^\s(]+)/i.exec(pgSql);
+    const tableName = match ? match[1].replace(/["`]/g, '').toLowerCase() : '';
     
-    if (isInsert && !hasReturning) {
-      pgSql += ' RETURNING id';
+    if (isInsert && !hasReturning && !TABLES_WITHOUT_ID.has(tableName)) {
+      try {
+        const res = await pool.query(pgSql + ' RETURNING id', params);
+        const lastInsertId = res.rows.length > 0 && res.rows[0].id ? Number(res.rows[0].id) : undefined;
+        return { rowCount: res.rowCount || 0, lastInsertId };
+      } catch (err: any) {
+        if (err.code === '42703' || (err.message && err.message.includes('column "id" does not exist'))) {
+          const res = await pool.query(pgSql, params);
+          return { rowCount: res.rowCount || 0 };
+        }
+        throw err;
+      }
     }
 
     const res = await pool.query(pgSql, params);
@@ -511,9 +525,23 @@ export async function transaction<T>(fn: (tx: DbClient) => Promise<T>): Promise<
           let pgSql = convertPlaceholdersToPg(sqlText);
           const isInsert = /^\s*INSERT\s+INTO/i.test(pgSql);
           const hasReturning = /RETURNING/i.test(pgSql);
-          if (isInsert && !hasReturning) {
-            pgSql += ' RETURNING id';
+          const match = /^\s*INSERT\s+INTO\s+([^\s(]+)/i.exec(pgSql);
+          const tableName = match ? match[1].replace(/["`]/g, '').toLowerCase() : '';
+
+          if (isInsert && !hasReturning && !TABLES_WITHOUT_ID.has(tableName)) {
+            try {
+              const res = await client.query(pgSql + ' RETURNING id', params);
+              const lastInsertId = res.rows.length > 0 && res.rows[0].id ? Number(res.rows[0].id) : undefined;
+              return { rowCount: res.rowCount || 0, lastInsertId };
+            } catch (err: any) {
+              if (err.code === '42703' || (err.message && err.message.includes('column "id" does not exist'))) {
+                const res = await client.query(pgSql, params);
+                return { rowCount: res.rowCount || 0 };
+              }
+              throw err;
+            }
           }
+
           const res = await client.query(pgSql, params);
           const lastInsertId = res.rows.length > 0 && res.rows[0].id ? Number(res.rows[0].id) : undefined;
           return { rowCount: res.rowCount || 0, lastInsertId };
