@@ -399,6 +399,9 @@ export interface DashboardSummaryData {
   cogs: number;
   profit: number;
   total_discount?: number;
+  discount?: number;
+  aov?: number;
+  ordersCount?: number;
   salesCount: number;
   soldQuantity: number;
   currentTotalStock: number;

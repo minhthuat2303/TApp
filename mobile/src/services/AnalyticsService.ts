@@ -303,18 +303,27 @@ export class AnalyticsService {
       });
       if (res.data) {
         const d = res.data;
+        const totalDiscount = Number(d.discount !== undefined ? d.discount : (d.total_discount || 0));
+        const netRev = Number(d.revenue || 0);
+        const orders = Number(d.ordersCount !== undefined ? d.ordersCount : (d.salesCount || 0));
+        const aov = Number(d.aov !== undefined ? d.aov : (orders > 0 ? Math.round(netRev / orders) : 0));
+
         const summary: DashboardSummaryData = {
-          revenue: Number(d.revenue || 0),
+          revenue: netRev,
           cogs: Number(d.cogs || 0),
           profit: Number(d.profit || 0),
-          salesCount: Number(d.salesCount || 0),
+          discount: totalDiscount,
+          total_discount: totalDiscount,
+          aov,
+          ordersCount: orders,
+          salesCount: orders,
           soldQuantity: Number(d.soldQuantity || 0),
           currentTotalStock: Number(d.currentTotalStock || 0),
           stockValuation: Number(d.stockValuation || 0),
           lowStockCount: Number(d.lowStockCount || 0),
-          importsCount: 0,
-          adjustmentsCount: 0,
-          adjustmentsQuantity: 0,
+          importsCount: Number(d.importsCount || 0),
+          adjustmentsCount: Number(d.adjustmentsCount || 0),
+          adjustmentsQuantity: Number(d.adjustmentsQuantity || 0),
           periodLabel: d.periodLabel || label,
           dateRange: {
             startDate,
@@ -333,11 +342,13 @@ export class AnalyticsService {
     try {
       let salesSql = `
         SELECT 
+          COUNT(DISTINCT CASE WHEN status = 'COMPLETED' THEN COALESCE(transaction_code, id) END) as orders_count,
           COUNT(CASE WHEN status = 'COMPLETED' THEN id END) as sales_count,
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN quantity ELSE 0 END), 0) as sold_quantity,
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_revenue ELSE 0 END), 0) as total_revenue,
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_cost ELSE 0 END), 0) as total_cost,
-          COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN profit ELSE 0 END), 0) as total_profit
+          COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN profit ELSE 0 END), 0) as total_profit,
+          COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN discount ELSE 0 END), 0) as total_discount
         FROM sales_records
         WHERE substr(sale_date, 1, 10) >= ? AND substr(sale_date, 1, 10) <= ?
       `;
@@ -397,11 +408,20 @@ export class AnalyticsService {
         stockValuation = Number(prodValuation?.prod_val || 0);
       }
 
+      const netRevenue = Number(salesStats?.total_revenue || 0);
+      const totalDiscount = Number(salesStats?.total_discount || 0);
+      const ordersCount = Number(salesStats?.orders_count || 0);
+      const aov = ordersCount > 0 ? Math.round(netRevenue / ordersCount) : 0;
+
       const localSummary: DashboardSummaryData = {
-        revenue: Number(salesStats?.total_revenue || 0),
+        revenue: netRevenue,
         cogs: Number(salesStats?.total_cost || 0),
         profit: Number(salesStats?.total_profit || 0),
-        salesCount: Number(salesStats?.sales_count || 0),
+        discount: totalDiscount,
+        total_discount: totalDiscount,
+        aov,
+        ordersCount,
+        salesCount: ordersCount > 0 ? ordersCount : Number(salesStats?.sales_count || 0),
         soldQuantity: Number(salesStats?.sold_quantity || 0),
         currentTotalStock,
         stockValuation,

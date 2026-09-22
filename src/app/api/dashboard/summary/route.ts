@@ -85,8 +85,10 @@ export async function GET(request: NextRequest) {
       db.queryOne<any>(`
         SELECT 
           COUNT(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN sr.id END) as sales_count,
+          COUNT(DISTINCT CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN COALESCE(sr.transaction_code, sr.id::text) END) as orders_count,
           COALESCE(SUM(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN sr.quantity ELSE 0 END), 0) as sold_quantity,
           COALESCE(SUM(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN sr.total_revenue ELSE 0 END), 0) as total_revenue,
+          COALESCE(SUM(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN COALESCE(sr.discount, 0) ELSE 0 END), 0) as total_discount,
           COALESCE(SUM(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN sr.total_cost ELSE 0 END), 0) as total_cost,
           COALESCE(SUM(CASE WHEN COALESCE(sr.status, 'COMPLETED') = 'COMPLETED' THEN sr.profit ELSE 0 END), 0) as total_profit,
           COUNT(CASE WHEN sr.status = 'CANCELLED' THEN sr.id END) as cancelled_count,
@@ -114,12 +116,20 @@ export async function GET(request: NextRequest) {
     ]);
 
     const stockValuation = Number(lotValuationRow?.lot_valuation || 0);
+    const netRevenue = Number(salesStats?.total_revenue || 0);
+    const totalDiscount = Number(salesStats?.total_discount || 0);
+    const ordersCount = Number(salesStats?.orders_count || 0);
+    const aov = ordersCount > 0 ? Math.round(netRevenue / ordersCount) : 0;
 
     const result = {
-      revenue: Number(salesStats?.total_revenue || 0),
+      revenue: netRevenue,
       cogs: Number(salesStats?.total_cost || 0),
       profit: Number(salesStats?.total_profit || 0),
-      salesCount: Number(salesStats?.sales_count || 0),
+      discount: totalDiscount,
+      total_discount: totalDiscount,
+      aov: aov,
+      ordersCount: ordersCount,
+      salesCount: ordersCount > 0 ? ordersCount : Number(salesStats?.sales_count || 0),
       soldQuantity: Number(salesStats?.sold_quantity || 0),
       cancelledCount: Number(salesStats?.cancelled_count || 0),
       cancelledRevenue: Number(salesStats?.cancelled_revenue || 0),

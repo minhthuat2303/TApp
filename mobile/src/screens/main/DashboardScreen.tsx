@@ -288,38 +288,43 @@ export const DashboardScreen: React.FC = () => {
           </View>
         </Card>
 
-        {/* Daily Summary Card: TỔNG KẾT HÔM NAY (Section 10) */}
-        {todaySummary && (
+        {/* Quick Stats Summary Card (Section 10) */}
+        {(summary || todaySummary) && (
           <Card style={styles.todayCard}>
             <View style={styles.todayHeader}>
-              <Text style={styles.todayTitle}>📅 Tổng kết hôm nay ({todaySummary.dateRange.startDate})</Text>
-              <Badge label={`${todaySummary.salesCount} đơn hoàn thành`} variant="success" />
+              <Text style={styles.todayTitle}>
+                📅 Tổng kết {(summary || todaySummary)?.periodLabel ? `(${(summary || todaySummary)?.periodLabel})` : 'hôm nay'}
+              </Text>
+              <Badge label={`${(summary || todaySummary)?.ordersCount || (summary || todaySummary)?.salesCount || 0} đơn hoàn thành`} variant="success" />
             </View>
             <View style={styles.todayGrid}>
               <View style={styles.todayItem}>
                 <Text style={styles.todayLabel}>Doanh thu thuần</Text>
-                <Text style={[styles.todayVal, { color: Colors.primary }]}>{formatCurrency(todaySummary.revenue)}</Text>
+                <Text style={[styles.todayVal, { color: Colors.primary }]}>{formatCurrency((summary || todaySummary)?.revenue)}</Text>
               </View>
               <View style={styles.todayItem}>
                 <Text style={styles.todayLabel}>Lợi nhuận gộp</Text>
-                <Text style={[styles.todayVal, { color: '#15803D' }]}>{formatCurrency(todaySummary.profit)}</Text>
+                <Text style={[styles.todayVal, { color: '#15803D' }]}>{formatCurrency((summary || todaySummary)?.profit)}</Text>
               </View>
               <View style={styles.todayItem}>
                 <Text style={styles.todayLabel}>Giá vốn (COGS)</Text>
-                <Text style={styles.todayVal}>{formatCurrency(todaySummary.cogs)}</Text>
+                <Text style={styles.todayVal}>{formatCurrency((summary || todaySummary)?.cogs)}</Text>
               </View>
               <View style={styles.todayItem}>
                 <Text style={styles.todayLabel}>Số lượng bán</Text>
-                <Text style={styles.todayVal}>{todaySummary.soldQuantity} món</Text>
+                <Text style={styles.todayVal}>{(summary || todaySummary)?.soldQuantity || 0} món</Text>
               </View>
               <View style={styles.todayItem}>
-                <Text style={styles.todayLabel}>Nhập kho</Text>
-                <Text style={styles.todayVal}>{todaySummary.importsCount || 0} phiếu</Text>
+                <Text style={styles.todayLabel}>Tổng giảm giá</Text>
+                <Text style={[styles.todayVal, { color: '#DC2626' }]}>
+                  {formatCurrency((summary || todaySummary)?.discount || (summary || todaySummary)?.total_discount || 0)}
+                </Text>
               </View>
               <View style={styles.todayItem}>
-                <Text style={styles.todayLabel}>Điều chỉnh tồn</Text>
-                <Text style={styles.todayVal}>
-                  {todaySummary.adjustmentsCount || 0} lượt{todaySummary.adjustmentsQuantity ? ` (${todaySummary.adjustmentsQuantity} cái)` : ''}
+                <Text style={styles.todayLabel}>Giá trị đơn TB</Text>
+                <Text style={[styles.todayVal, { color: '#0284C7' }]}>
+                  {formatCurrency((summary || todaySummary)?.aov || 0)}
+                  <Text style={{ fontSize: 11, fontWeight: 'normal', color: Colors.textMuted }}> / đơn</Text>
                 </Text>
               </View>
             </View>
