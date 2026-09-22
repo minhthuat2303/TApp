@@ -82,7 +82,21 @@ export class PurchaseOrderService {
   // 4. Confirm a Pending Purchase Order
   async confirmPurchaseOrder(orderId: number | string): Promise<any> {
     logger.info('PurchaseOrderService', `Order ${orderId} confirmed on Supabase.`);
-    return { success: true, message: 'Đơn mua hàng đã được xác nhận.' };
+    const po = await this.getPurchaseOrderById(orderId);
+    const code = po?.import_code || `PO-#${orderId}`;
+    return {
+      success: true,
+      importCode: code,
+      import_code: code,
+      importRecord: {
+        id: Number(orderId),
+        import_code: code,
+        importCode: code,
+        total_amount: po?.total_amount || 0,
+        totalAmount: po?.total_amount || 0,
+      },
+      message: 'Đơn mua hàng đã được xác nhận.'
+    };
   }
 
   // 5. Cancel a Pending Purchase Order

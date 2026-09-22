@@ -379,14 +379,14 @@ export const ReportsScreen: React.FC = () => {
                       <Text style={{ fontSize: 13 }}>💎</Text>
                       <Text style={styles.heroLabel}>DOANH THU THỰC THU</Text>
                     </View>
-                    {renderTrendBadge(
+                    {overviewData.comparisons?.netRevenue && renderTrendBadge(
                       overviewData.comparisons.netRevenue.changePercent, 
                       overviewData.comparisons.netRevenue.trend
                     )}
                   </View>
 
                   <Text style={styles.heroPrimaryVal}>
-                    {formatCurrency(overviewData.netRevenue)}
+                    {formatCurrency(overviewData.netRevenue || 0)}
                   </Text>
                   
                   <Text style={styles.heroSubDescription}>
@@ -399,13 +399,13 @@ export const ReportsScreen: React.FC = () => {
                       <View 
                         style={[
                           styles.heroRatioSegmentCogs, 
-                          { width: `${overviewData.netRevenue > 0 ? Math.min(100, Math.round((overviewData.cogs / overviewData.netRevenue) * 100)) : 0}%` }
+                          { width: `${(overviewData.netRevenue || 0) > 0 ? Math.min(100, Math.round(((overviewData.cogs || 0) / overviewData.netRevenue) * 100)) : 0}%` }
                         ]} 
                       />
                       <View 
                         style={[
                           styles.heroRatioSegmentProfit, 
-                          { width: `${overviewData.netRevenue > 0 ? Math.max(0, Math.min(100, Math.round((overviewData.grossProfit / overviewData.netRevenue) * 100))) : 0}%` }
+                          { width: `${(overviewData.netRevenue || 0) > 0 ? Math.max(0, Math.min(100, Math.round(((overviewData.grossProfit || 0) / overviewData.netRevenue) * 100))) : 0}%` }
                         ]} 
                       />
                     </View>
@@ -413,13 +413,13 @@ export const ReportsScreen: React.FC = () => {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <View style={[styles.heroRatioDot, { backgroundColor: '#F59E0B' }]} />
                         <Text style={styles.heroRatioLegendText}>
-                          Giá vốn {overviewData.netRevenue > 0 ? Math.round((overviewData.cogs / overviewData.netRevenue) * 100) : 0}%
+                          Giá vốn {(overviewData.netRevenue || 0) > 0 ? Math.round(((overviewData.cogs || 0) / overviewData.netRevenue) * 100) : 0}%
                         </Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <View style={[styles.heroRatioDot, { backgroundColor: '#10B981' }]} />
                         <Text style={styles.heroRatioLegendText}>
-                          Lãi gộp {overviewData.netRevenue > 0 ? Math.round((overviewData.grossProfit / overviewData.netRevenue) * 100) : 0}%
+                          Lãi gộp {(overviewData.netRevenue || 0) > 0 ? Math.round(((overviewData.grossProfit || 0) / overviewData.netRevenue) * 100) : 0}%
                         </Text>
                       </View>
                     </View>
@@ -432,10 +432,10 @@ export const ReportsScreen: React.FC = () => {
                     <View style={styles.heroPillarItem}>
                       <Text style={styles.heroPillarLabel}>LỢI NHUẬN GỘP</Text>
                       <Text style={styles.heroProfitVal}>
-                        {formatCurrency(overviewData.grossProfit)}
+                        {formatCurrency(overviewData.grossProfit || 0)}
                       </Text>
                       <View style={{ marginTop: 2 }}>
-                        {renderTrendBadge(
+                        {overviewData.comparisons?.grossProfit && renderTrendBadge(
                           overviewData.comparisons.grossProfit.changePercent, 
                           overviewData.comparisons.grossProfit.trend
                         )}
@@ -447,10 +447,10 @@ export const ReportsScreen: React.FC = () => {
                     <View style={styles.heroPillarItem}>
                       <Text style={styles.heroPillarLabel}>TỶ SUẤT MARGIN</Text>
                       <Text style={styles.heroMarginVal}>
-                        {overviewData.margin}%
+                        {overviewData.margin || 0}%
                       </Text>
                       <View style={{ marginTop: 2 }}>
-                        {renderTrendBadge(
+                        {overviewData.comparisons?.margin && renderTrendBadge(
                           overviewData.comparisons.margin.percentagePointsChange, 
                           overviewData.comparisons.margin.trend, 
                           true
@@ -471,14 +471,14 @@ export const ReportsScreen: React.FC = () => {
                         <View style={[styles.matrixIconCircle, { backgroundColor: '#EFF6FF' }]}>
                           <Text style={{ fontSize: 13 }}>🧾</Text>
                         </View>
-                        {renderTrendBadge(
+                        {overviewData.comparisons?.ordersCount && renderTrendBadge(
                           overviewData.comparisons.ordersCount.changePercent, 
                           overviewData.comparisons.ordersCount.trend
                         )}
                       </View>
                       <View style={styles.matrixCardBody}>
                         <Text style={styles.matrixLabel} numberOfLines={1}>Đơn hoàn thành</Text>
-                        <Text style={styles.matrixValue} numberOfLines={1}>{overviewData.ordersCount} đơn</Text>
+                        <Text style={styles.matrixValue} numberOfLines={1}>{overviewData.ordersCount || 0} đơn</Text>
                         <Text style={styles.matrixSubText} numberOfLines={1}>Giao dịch chốt</Text>
                       </View>
                     </Card>
@@ -489,7 +489,7 @@ export const ReportsScreen: React.FC = () => {
                         <View style={[styles.matrixIconCircle, { backgroundColor: '#F0FDF4' }]}>
                           <Text style={{ fontSize: 13 }}>💳</Text>
                         </View>
-                        {renderTrendBadge(
+                        {overviewData.comparisons?.aov && renderTrendBadge(
                           overviewData.comparisons.aov.changePercent, 
                           overviewData.comparisons.aov.trend
                         )}

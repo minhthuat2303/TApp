@@ -8,6 +8,7 @@ export interface CreateSaleInput {
   quantity: number;
   unitPriceAtSale?: number;
   discount?: number;
+  paymentMethod?: string;
   note?: string;
   createdBy?: number;
 }

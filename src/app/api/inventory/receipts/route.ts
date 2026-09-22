@@ -280,6 +280,15 @@ export async function POST(request: NextRequest) {
         itemsCount: verifiedItems.length,
         importDate: date,
         lots: createdLots,
+        importRecord: {
+          id: importId,
+          import_code: importCode,
+          importCode: importCode,
+          total_amount: totalAmount,
+          totalAmount: totalAmount,
+          import_date: date,
+          note: note || '',
+        },
       };
     });
 

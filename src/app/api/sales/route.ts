@@ -37,9 +37,21 @@ export async function GET(request: NextRequest) {
       params.push(status);
     }
 
+    const paymentMethod = searchParams.get('paymentMethod');
+    if (paymentMethod && paymentMethod !== 'ALL') {
+      whereClauses.push(`COALESCE(sr.payment_method, 'CASH') = ?`);
+      params.push(paymentMethod);
+    }
+
     if (q) {
-      whereClauses.push(`(sr.transaction_code ILIKE ? OR p.name ILIKE ? OR p.sku ILIKE ? OR sr.note ILIKE ?)`);
-      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      const isNum = /^\d+$/.test(q);
+      if (isNum) {
+        whereClauses.push(`(sr.id = ? OR sr.transaction_code ILIKE ? OR p.name ILIKE ? OR p.sku ILIKE ? OR sr.note ILIKE ?)`);
+        params.push(parseInt(q, 10), `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      } else {
+        whereClauses.push(`(sr.transaction_code ILIKE ? OR p.name ILIKE ? OR p.sku ILIKE ? OR sr.note ILIKE ?)`);
+        params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      }
     }
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -69,6 +81,7 @@ export async function GET(request: NextRequest) {
         COALESCE(sr.discount, 0) as discount,
         sr.total_revenue, sr.total_cost, sr.profit,
         COALESCE(sr.status, 'COMPLETED') as status,
+        COALESCE(sr.payment_method, 'CASH') as payment_method,
         sr.cancel_reason, sr.cancelled_at,
         sr.note, sr.created_at,
         p.name as product_name, p.sku,
@@ -125,9 +138,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { saleDate, items, productId, quantity, discountThousand, note } = body;
+    const { 
+      saleDate, items, productId, quantity, discountThousand, note, 
+      paymentMethod: inputPaymentMethod, orderCode, transactionCode, clientOrderId 
+    } = body;
+    const paymentMethod = inputPaymentMethod === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : 'CASH';
 
     const date = saleDate || new Date().toISOString().split('T')[0];
+    const cleanDate = date.replace(/-/g, '');
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const sharedTxCode = (transactionCode || orderCode || clientOrderId || '').trim() || `TX-${cleanDate}-${Date.now().toString().slice(-4)}${randomSuffix}`;
 
     let salesItems: Array<{ productId: number; quantity: number; discountThousand?: number; note?: string }> = [];
 
@@ -263,19 +283,15 @@ export async function POST(request: NextRequest) {
         const profit = totalRevenue - totalCost;
         const costPriceAtSale = item.quantity > 0 ? (totalCost / item.quantity) : Number(product.current_cost_price);
 
-        const cleanDate = date.replace(/-/g, '');
-        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-        const txCode = `TX-${cleanDate}-${Date.now().toString().slice(-4)}${randomSuffix}`;
-
         // 5. Insert sales_records
         const saleInfo = await tx.execute(`
           INSERT INTO sales_records (
             transaction_code, product_id, sale_date, quantity,
             unit_price_at_sale, cost_price_at_sale, discount, total_revenue, total_cost, profit,
-            note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            note, created_by, payment_method
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          txCode,
+          sharedTxCode,
           item.productId,
           date,
           item.quantity,
@@ -286,7 +302,8 @@ export async function POST(request: NextRequest) {
           totalCost,
           profit,
           item.note || null,
-          user.id
+          user.id,
+          paymentMethod
         ]);
 
         const saleRecordId = Number(saleInfo.lastInsertId);
@@ -313,7 +330,7 @@ export async function POST(request: NextRequest) {
           newStockBalance,
           date,
           saleRecordId,
-          `Ghi nhận bán mã ${txCode} (FIFO: ${allocationsToInsert.map(a => `${a.qty}x${a.lotCode}`).join(', ')})` +
+          `Ghi nhận bán mã ${sharedTxCode} (FIFO: ${allocationsToInsert.map(a => `${a.qty}x${a.lotCode}`).join(', ')})` +
             (discountAmount > 0 ? ` (Giảm ${discountAmount.toLocaleString('vi-VN')}đ)` : ''),
           user.id
         ]);
@@ -347,7 +364,7 @@ export async function POST(request: NextRequest) {
           INSERT INTO audit_logs (user_id, action, entity_name, entity_id, new_value_json)
           VALUES (?, 'RECORD_SALE_FIFO', 'SALES_RECORDS', ?, ?)
         `, [user.id, saleRecordId.toString(), JSON.stringify({
-          transaction_code: txCode,
+          transaction_code: sharedTxCode,
           product_sku: product.sku,
           product_name: product.name,
           quantity: item.quantity,
@@ -362,7 +379,7 @@ export async function POST(request: NextRequest) {
 
         recordedList.push({
           id: saleRecordId,
-          transaction_code: txCode,
+          transaction_code: sharedTxCode,
           product_name: product.name,
           sku: product.sku,
           quantity: item.quantity,
@@ -374,6 +391,9 @@ export async function POST(request: NextRequest) {
           allocations: allocationsToInsert,
           remaining_stock: newStockBalance,
           sale_date: date,
+          status: 'COMPLETED',
+          payment_method: paymentMethod,
+          created_at: new Date().toISOString(),
         });
       }
 
@@ -384,7 +404,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: results.length === 1 ? results[0] : results,
+      data: results,
+      orderCode: sharedTxCode,
+      transactionCode: sharedTxCode,
       totalRevenue: totalBatchRevenue,
       count: results.length,
       message: `Đã ghi nhận bán thành công ${results.length} sản phẩm theo chuẩn FIFO.`,

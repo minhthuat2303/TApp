@@ -78,6 +78,8 @@ export interface SalesOrder {
   created_by: number | null;
   created_at: string;
   synced_at: string | null;
+  product_names?: string[];
+  display_title?: string;
 }
 
 export interface ImportRecord {

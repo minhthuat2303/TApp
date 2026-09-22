@@ -257,7 +257,7 @@ export const InventoryScreen: React.FC = () => {
 
       showAlert(
         'Nhập kho thành công! ✅',
-        `Mã phiếu: ${result.importRecord.import_code}\nSố mặt hàng: ${importItems.length}\nTổng tiền nhập: ${formatCurrency(result.importRecord.total_amount)}\n\nTồn kho và lịch sử giá vốn đã ghi nhận tức thì vào SQLite và xếp hàng Outbox.`
+        `Mã phiếu: ${result?.importRecord?.import_code || (result as any)?.importCode || 'NK-HOAN-TAT'}\nSố mặt hàng: ${importItems.length}\nTổng tiền nhập: ${formatCurrency(result?.importRecord?.total_amount || (result as any)?.totalAmount || 0)}\n\nTồn kho và phân bổ lô FIFO đã ghi nhận tức thì trên Supabase Cloud.`
       );
 
       setImportModalVisible(false);
@@ -355,7 +355,8 @@ export const InventoryScreen: React.FC = () => {
         setConfirmingPO(true);
         try {
           const res = await purchaseOrderService.confirmPurchaseOrder(orderId);
-          showAlert('Xác nhận thành công! ✅', `Đơn hàng ${res.importCode} đã hoàn tất nhập kho thực tế.`);
+          const poCode = res?.importCode || res?.import_code || selectedPO?.import_code || `#${orderId}`;
+          showAlert('Xác nhận thành công! ✅', `Đơn hàng ${poCode} đã hoàn tất nhập kho thực tế.`);
           setPoDetailModalVisible(false);
           await loadData();
         } catch (err: any) {

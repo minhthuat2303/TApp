@@ -22,7 +22,7 @@ import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import EmptyState from '../../components/common/EmptyState';
 import NetworkBanner from '../../components/common/NetworkBanner';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatters';
 import { Colors } from '../../constants/colors';
 import { Spacing, Typography, BorderRadius } from '../../constants/layout';
 import productRepository from '../../repository/ProductRepository';
@@ -173,7 +173,8 @@ export const SalesScreen: React.FC = () => {
     setLoadingOrderDetail(true);
     setDetailViewMode('DETAIL');
     try {
-      const detail = await saleRepository.getSaleOrderDetail(order.id || order.client_order_id);
+      const canonicalKey = order.order_code || order.client_order_id || order.id;
+      const detail = await saleRepository.getSaleOrderDetail(canonicalKey);
       if (detail) {
         setSelectedOrderDetail(detail);
         setSaleDetailModalVisible(true);
@@ -229,17 +230,23 @@ export const SalesScreen: React.FC = () => {
     setCancellingSale(true);
     try {
       const order = selectedOrderDetail.order;
+      const canonicalKey = order.order_code || order.client_order_id || order.id;
+      const itemIds = selectedOrderDetail.items.map((it) => it.id).filter(Boolean);
+
       const res = await saleRepository.cancelSaleOrder({
         orderId: order.id,
-        clientOrderId: order.client_order_id,
+        clientOrderId: order.order_code || order.client_order_id,
         reason: finalReason,
         userId: user?.id || 1,
         userRole: user?.role || 'ADMIN',
+        itemIds,
       });
 
-      // Refresh order detail
-      const refreshedDetail = await saleRepository.getSaleOrderDetail(order.id || order.client_order_id);
-      setSelectedOrderDetail(refreshedDetail);
+      // Refresh order detail using canonical key
+      const refreshedDetail = await saleRepository.getSaleOrderDetail(canonicalKey);
+      if (refreshedDetail) {
+        setSelectedOrderDetail(refreshedDetail);
+      }
 
       // Return to detail view mode
       setDetailViewMode('DETAIL');
@@ -620,6 +627,7 @@ export const SalesScreen: React.FC = () => {
           discount: it.discount,
         })),
         totalDiscount,
+        paymentMethod,
         note: saleNote || undefined,
         createdBy: user?.id,
       });
@@ -1258,13 +1266,16 @@ export const SalesScreen: React.FC = () => {
             ) : (
               <FlatList
                 data={historyOrders}
-                keyExtractor={(item) => (item.id ? item.id.toString() : item.client_order_id)}
+                keyExtractor={(item) => (item.order_code || item.client_order_id || item.id.toString())}
                 contentContainerStyle={{ padding: Spacing.md, paddingBottom: 40 }}
                 showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => {
                   const isCancelled = item.status === 'CANCELLED';
                   const syncVariant = item.sync_status === 'SYNCED' ? 'primary' : item.sync_status === 'PENDING' ? 'warning' : 'danger';
                   const syncLabel = item.sync_status === 'SYNCED' ? 'Đã đồng bộ' : item.sync_status === 'PENDING' ? 'Chờ đồng bộ' : (item.sync_status || 'Offline');
+                  const orderTitle = item.display_title || (item.product_names && item.product_names.length > 0
+                    ? (item.product_names.length === 1 ? item.product_names[0] : `${item.product_names[0]} + ${item.product_names.length - 1} sản phẩm khác`)
+                    : `#${item.order_code}`);
 
                   return (
                     <TouchableOpacity
@@ -1273,18 +1284,19 @@ export const SalesScreen: React.FC = () => {
                     >
                       <Card style={[styles.historyOrderCard, isCancelled && styles.historyOrderCardCancelled]}>
                         <View style={styles.orderCardHeader}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={styles.orderCardCode}>#{item.order_code}</Text>
-                            <Badge
-                              label={isCancelled ? '✕ Đã hủy' : '✓ Hoàn thành'}
-                              variant={isCancelled ? 'danger' : 'success'}
-                            />
-                            <Badge
-                              label={syncLabel}
-                              variant={syncVariant}
-                            />
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={styles.orderCardTitle} numberOfLines={1}>
+                              {orderTitle}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                              <Text style={styles.orderCardSubcode}>Mã: #{item.order_code}</Text>
+                              <Badge
+                                label={isCancelled ? '✕ Đã hủy' : '✓ Hoàn thành'}
+                                variant={isCancelled ? 'danger' : 'success'}
+                              />
+                            </View>
                           </View>
-                          <Text style={styles.orderCardTime}>{formatDate(item.sale_date || item.created_at)}</Text>
+                          <Text style={styles.orderCardTime}>{formatDateTime(item.created_at || item.sale_date)}</Text>
                         </View>
 
                         <View style={styles.orderCardBody}>
@@ -1621,36 +1633,42 @@ export const SalesScreen: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { height: '90%' }]}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={[styles.modalTitle, detailViewMode === 'CANCEL' && { color: Colors.danger }]}>
-                  {detailViewMode === 'CANCEL'
-                    ? `Xác nhận hủy đơn #${selectedOrderDetail?.order?.order_code || ''}`
-                    : `Chi tiết đơn #${selectedOrderDetail?.order?.order_code || ''}`
-                  }
-                </Text>
-                <Text style={{ fontSize: 11, color: Colors.textMuted }}>
-                  {detailViewMode === 'CANCEL'
-                    ? 'Thao tác này sẽ hoàn trả tồn kho và cập nhật báo cáo'
-                    : `Mã giao dịch: ${selectedOrderDetail?.order?.client_order_id || ''}`
-                  }
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => {
-                  if (detailViewMode === 'CANCEL') {
-                    setDetailViewMode('DETAIL');
-                  } else {
-                    setSaleDetailModalVisible(false);
-                  }
-                }}
-                disabled={cancellingSale}
-              >
-                <Text style={styles.modalCloseText}>
-                  {detailViewMode === 'CANCEL' ? '← Quay lại' : '✕ Đóng'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {(() => {
+              const modalItems = selectedOrderDetail?.items || [];
+              const productNames = [...new Set(modalItems.map((it: any) => it.product_name).filter(Boolean))];
+              const modalTitle = productNames.length === 0
+                ? (selectedOrderDetail?.order?.order_code ? `Đơn #${selectedOrderDetail.order.order_code}` : 'Chi tiết đơn hàng')
+                : productNames.length === 1
+                  ? productNames[0]
+                  : `${productNames[0]} + ${productNames.length - 1} sản phẩm khác`;
+
+              return (
+                <View style={styles.modalHeader}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={[styles.modalTitle, detailViewMode === 'CANCEL' && { color: Colors.danger }]} numberOfLines={1}>
+                      {detailViewMode === 'CANCEL' ? `Xác nhận hủy: ${modalTitle}` : modalTitle}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: Colors.textMuted, marginTop: 2 }}>
+                      Mã đơn: #{selectedOrderDetail?.order?.order_code || ''} • {formatDateTime(selectedOrderDetail?.order?.created_at || selectedOrderDetail?.order?.sale_date)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (detailViewMode === 'CANCEL') {
+                        setDetailViewMode('DETAIL');
+                      } else {
+                        setSaleDetailModalVisible(false);
+                      }
+                    }}
+                    disabled={cancellingSale}
+                  >
+                    <Text style={styles.modalCloseText}>
+                      {detailViewMode === 'CANCEL' ? '← Quay lại' : '✕ Đóng'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
 
             {loadingOrderDetail ? (
               <View style={styles.loadingWrapper}>
@@ -1791,9 +1809,15 @@ export const SalesScreen: React.FC = () => {
                   {/* Header Information Card */}
                   <Card style={styles.detailMetaCard}>
                     <View style={styles.detailMetaRow}>
+                      <Text style={styles.detailMetaLabel}>Mã đơn hàng:</Text>
+                      <Text style={[styles.detailMetaValue, { fontWeight: '700', color: Colors.primary }]}>
+                        #{selectedOrderDetail.order.order_code}
+                      </Text>
+                    </View>
+                    <View style={styles.detailMetaRow}>
                       <Text style={styles.detailMetaLabel}>Ngày bán:</Text>
                       <Text style={styles.detailMetaValue}>
-                        {formatDate(selectedOrderDetail.order.sale_date || selectedOrderDetail.order.created_at)}
+                        {formatDateTime(selectedOrderDetail.order.created_at || selectedOrderDetail.order.sale_date)}
                       </Text>
                     </View>
                     <View style={styles.detailMetaRow}>
@@ -2696,6 +2720,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Colors.textPrimary,
+  },
+  orderCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  orderCardSubcode: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    fontFamily: 'monospace',
   },
   orderCardTime: {
     fontSize: 11,

@@ -1,0 +1,20 @@
+{
+  "salesBreakdown": [
+    {
+      "status": "CANCELLED",
+      "payment_method": "CASH",
+      "count": "37",
+      "sum_qty": "2102",
+      "sum_rev": "315880000.00",
+      "sum_profit": "145610000.00"
+    },
+    {
+      "status": "COMPLETED",
+      "payment_method": "CASH",
+      "count": "23",
+      "sum_qty": "93",
+      "sum_rev": "29449000.00",
+      "sum_profit": "18699000.00"
+    }
+  ]
+}

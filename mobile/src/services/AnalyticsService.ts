@@ -738,6 +738,66 @@ export class AnalyticsService {
   async getReportOverview(period: DatePeriod = 'this_month', customStart?: string, customEnd?: string, userId?: number): Promise<ReportOverviewData> {
     const curRange = this.resolveDateRange(period, customStart, customEnd);
     const prevRange = this.resolvePreviousDateRange(period, curRange.startDate, curRange.endDate);
+    // 1. Direct Online Fetch from Supabase Cloud API
+    try {
+      const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
+        params: {
+          type: 'overview',
+          period,
+          startDate: customStart,
+          endDate: customEnd,
+          userId,
+        }
+      });
+      if (res.data) {
+        const raw = (res.data && typeof res.data === 'object' && 'data' in res.data && (res.data as any).data) 
+          ? (res.data as any).data 
+          : res.data;
+
+        const netRev = Number(raw.netRevenue ?? raw.revenue ?? 0);
+        const grossProfit = Number(raw.grossProfit ?? raw.profit ?? 0);
+        const cogs = Number(raw.cogs ?? 0);
+        const grossSales = Number(raw.grossSales ?? (netRev + Number(raw.discount || 0)));
+        const discount = Number(raw.discount ?? 0);
+        const ordersCount = Number(raw.ordersCount ?? raw.salesCount ?? 0);
+        const unitsSold = Number(raw.unitsSold ?? raw.soldQuantity ?? 0);
+        const margin = Number(raw.margin ?? (netRev > 0 ? Math.round((grossProfit / netRev) * 1000) / 10 : 0));
+        const aov = Number(raw.aov ?? (ordersCount > 0 ? Math.round(netRev / ordersCount) : 0));
+        const unitsPerOrder = Number(raw.unitsPerOrder ?? (ordersCount > 0 ? Math.round((unitsSold / ordersCount) * 10) / 10 : 0));
+
+        const comparisons = {
+          netRevenue: raw.comparisons?.netRevenue || { current: netRev, previous: 0, changeValue: 0, changePercent: 0, trend: 'FLAT' as const },
+          grossProfit: raw.comparisons?.grossProfit || { current: grossProfit, previous: 0, changeValue: 0, changePercent: 0, trend: 'FLAT' as const },
+          ordersCount: raw.comparisons?.ordersCount || { current: ordersCount, previous: 0, changeValue: 0, changePercent: 0, trend: 'FLAT' as const },
+          aov: raw.comparisons?.aov || { current: aov, previous: 0, changeValue: 0, changePercent: 0, trend: 'FLAT' as const },
+          margin: raw.comparisons?.margin || { currentMargin: margin, previousMargin: 0, percentagePointsChange: 0, trend: 'FLAT' as const },
+        };
+
+        return {
+          grossSales,
+          discount,
+          netRevenue: netRev,
+          cogs,
+          grossProfit,
+          margin,
+          ordersCount,
+          unitsSold,
+          aov,
+          unitsPerOrder,
+          comparisons,
+          trend: Array.isArray(raw.trend) ? raw.trend : [],
+          alerts: Array.isArray(raw.alerts) ? raw.alerts : [],
+          periodLabel: raw.periodLabel || curRange.label,
+          previousPeriodLabel: raw.previousPeriodLabel || prevRange.label,
+          startDate: raw.startDate || curRange.startDate,
+          endDate: raw.endDate || curRange.endDate,
+          previousStartDate: raw.previousStartDate || prevRange.startDate,
+          previousEndDate: raw.previousEndDate || prevRange.endDate,
+        };
+      }
+    } catch (err) {
+      logger.warn('AnalyticsService', 'Failed to fetch cloud report overview, falling back to local SQLite', err);
+    }
 
     try {
       // 1. Current period metrics
@@ -943,19 +1003,20 @@ export class AnalyticsService {
       const res = await apiClient.get<any>(Endpoints.REPORTS_ANALYTICS, {
         params: { type: 'timeline', period, startDate: customStart, endDate: customEnd, userId }
       });
-      if (res.data?.points && Array.isArray(res.data.points)) {
-        return res.data.points.map((p: any) => ({
-          timeKey: p.date,
-          label: p.date,
-          grossSales: p.revenue,
-          discount: 0,
-          netRevenue: p.revenue,
-          cogs: p.cost,
-          grossProfit: p.profit,
-          margin: p.margin,
-          ordersCount: p.ordersCount,
-          unitsSold: p.unitsSold,
-          aov: p.ordersCount > 0 ? Math.round(p.revenue / p.ordersCount) : 0,
+      const rawPoints = Array.isArray(res.data) ? res.data : (res.data?.points || []);
+      if (rawPoints.length > 0) {
+        return rawPoints.map((p: any) => ({
+          timeKey: p.timeKey || p.date,
+          label: p.label || p.date,
+          grossSales: Number(p.grossSales ?? p.revenue ?? 0),
+          discount: Number(p.discount || 0),
+          netRevenue: Number(p.netRevenue ?? p.revenue ?? 0),
+          cogs: Number(p.cogs ?? p.cost ?? 0),
+          grossProfit: Number(p.grossProfit ?? p.profit ?? 0),
+          margin: Number(p.margin || 0),
+          ordersCount: Number(p.ordersCount || 0),
+          unitsSold: Number(p.unitsSold || 0),
+          aov: Number(p.aov || (p.ordersCount > 0 ? Math.round(Number(p.revenue || 0) / p.ordersCount) : 0)),
         }));
       }
     } catch (err) {

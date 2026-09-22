@@ -146,7 +146,27 @@ export class InventoryRepository implements IRepository<StockMovement> {
     // Invalidate product memory cache so stock updates instantly
     productRepository.clearMemoryCache();
 
-    return res.data;
+    const rawData: any = res.data;
+    const code = rawData.importCode || rawData.import_code || rawData.importRecord?.import_code || rawData.importRecord?.importCode || 'NK-SUCCESS';
+    const amount = Number(rawData.totalAmount || rawData.total_amount || rawData.importRecord?.total_amount || 0);
+
+    const normalized: any = {
+      ...rawData,
+      importCode: code,
+      import_code: code,
+      totalAmount: amount,
+      total_amount: amount,
+      importRecord: {
+        id: rawData.importId || rawData.importRecord?.id || 0,
+        import_code: code,
+        importCode: code,
+        total_amount: amount,
+        totalAmount: amount,
+        ...(rawData.importRecord || {})
+      }
+    };
+
+    return normalized;
   }
 
   // Pure Online Stock Adjustment (Điều chỉnh kho -> Supabase PostgreSQL via Vercel API)

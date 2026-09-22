@@ -1,9 +1,13 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import serverCache from './cache';
+
+// Force PostgreSQL DATE (type OID 1082) to parse as raw 'YYYY-MM-DD' string
+// to prevent JavaScript UTC serialization from shifting dates backward across timezones.
+types.setTypeParser(1082, (val: string) => val);
 
 // Types for unified database operations
 export interface DbClient {
@@ -229,7 +233,7 @@ export async function ensurePgSchema() {
 
         CREATE TABLE IF NOT EXISTS sales_records (
           id SERIAL PRIMARY KEY,
-          transaction_code VARCHAR(100) UNIQUE NOT NULL,
+          transaction_code VARCHAR(100) NOT NULL,
           product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
           sale_date DATE NOT NULL,
           quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -240,6 +244,7 @@ export async function ensurePgSchema() {
           total_cost NUMERIC(15, 2) NOT NULL CHECK (total_cost >= 0),
           profit NUMERIC(15, 2) NOT NULL,
           status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED' CHECK (status IN ('COMPLETED', 'CANCELLED')),
+          payment_method VARCHAR(30) NOT NULL DEFAULT 'CASH',
           cancel_reason TEXT,
           cancelled_at TIMESTAMPTZ,
           cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -392,6 +397,7 @@ export async function ensurePgSchema() {
         CREATE INDEX IF NOT EXISTS idx_cost_price_history_lookup ON cost_price_history(product_id, effective_from DESC);
         CREATE INDEX IF NOT EXISTS idx_sales_records_date ON sales_records(sale_date);
         CREATE INDEX IF NOT EXISTS idx_sales_records_product_date ON sales_records(product_id, sale_date);
+        CREATE INDEX IF NOT EXISTS idx_sales_records_tx_code ON sales_records(transaction_code);
         CREATE INDEX IF NOT EXISTS idx_stock_movements_prod_date ON stock_movements(product_id, movement_date);
         CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type);
         CREATE INDEX IF NOT EXISTS idx_inventory_lots_fifo ON inventory_lots(product_id, purchase_date ASC, id ASC);
@@ -406,7 +412,7 @@ export async function ensurePgSchema() {
         CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_token ON user_sessions(refresh_token_hash);
       `);
 
-      // Safe column additions for existing PostgreSQL tables
+      // Safe column additions and constraint migrations for existing PostgreSQL tables
       try {
         await client.query(`
           DO $$ 
@@ -421,6 +427,14 @@ export async function ensurePgSchema() {
             END;
             BEGIN
               ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+              ALTER TABLE sales_records ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) DEFAULT 'CASH';
+            EXCEPTION WHEN others THEN NULL;
+            END;
+            BEGIN
+              ALTER TABLE sales_records DROP CONSTRAINT IF EXISTS sales_records_transaction_code_key;
             EXCEPTION WHEN others THEN NULL;
             END;
           END $$;

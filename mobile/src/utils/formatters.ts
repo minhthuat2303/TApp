@@ -23,8 +23,13 @@ export function formatInteger(num: number | string | null | undefined): string {
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '';
   try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return String(dateStr);
+    const s = String(dateStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [year, month, day] = s.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
     const day = String(d.getDate()).padStart(2, '0');
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = d.getFullYear();
@@ -37,5 +42,22 @@ export function formatDate(dateStr: string | null | undefined): string {
 }
 
 export function formatDateTime(dateStr: string | null | undefined): string {
-  return formatDate(dateStr);
+  if (!dateStr) return '';
+  try {
+    const s = String(dateStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [year, month, day] = s.split('-');
+      return `${day}/${month}/${year}`;
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes} ${day}/${month}/${year}`;
+  } catch {
+    return String(dateStr);
+  }
 }
