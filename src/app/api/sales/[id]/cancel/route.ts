@@ -33,14 +33,23 @@ export async function POST(
 
     const cancelResult = await db.transaction(async (tx) => {
       // 1. Fetch target sale record by transaction_code OR id
-      const initialSale = await tx.queryOne<any>(`
-        SELECT id, transaction_code, product_id, sale_date, quantity, 
-               unit_price_at_sale, discount, total_revenue, total_cost, profit, status
-        FROM sales_records
-        WHERE transaction_code = ? OR (id = ? AND ? IS NOT NULL)
-        ORDER BY id ASC
-        LIMIT 1
-      `, [cleanId, numericId, numericId]);
+      const initialSale = numericId !== null
+        ? await tx.queryOne<any>(`
+            SELECT id, transaction_code, product_id, sale_date, quantity, 
+                   unit_price_at_sale, discount, total_revenue, total_cost, profit, status
+            FROM sales_records
+            WHERE transaction_code = ? OR id = ?
+            ORDER BY id ASC
+            LIMIT 1
+          `, [cleanId, numericId])
+        : await tx.queryOne<any>(`
+            SELECT id, transaction_code, product_id, sale_date, quantity, 
+                   unit_price_at_sale, discount, total_revenue, total_cost, profit, status
+            FROM sales_records
+            WHERE transaction_code = ?
+            ORDER BY id ASC
+            LIMIT 1
+          `, [cleanId]);
 
       if (!initialSale) {
         throw new Error(`Không tìm thấy phiếu bán hàng [${cleanId}] cần hủy.`);
@@ -49,15 +58,25 @@ export async function POST(
       const canonicalTxCode = initialSale.transaction_code;
 
       // 2. Fetch all sales records sharing this transaction code or ID (multi-item order)
-      const allRecordsForOrder = await tx.query<any>(`
-        SELECT sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity, 
-               sr.unit_price_at_sale, sr.discount, sr.total_revenue, sr.total_cost, sr.profit, sr.status,
-               p.sku as product_sku, p.name as product_name, p.current_cost_price
-        FROM sales_records sr
-        JOIN products p ON p.id = sr.product_id
-        WHERE sr.transaction_code = ? OR (sr.id = ? AND ? IS NOT NULL)
-        ORDER BY sr.id ASC
-      `, [canonicalTxCode, numericId, numericId]);
+      const allRecordsForOrder = canonicalTxCode
+        ? await tx.query<any>(`
+            SELECT sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity, 
+                   sr.unit_price_at_sale, sr.discount, sr.total_revenue, sr.total_cost, sr.profit, sr.status,
+                   p.sku as product_sku, p.name as product_name, p.current_cost_price
+            FROM sales_records sr
+            JOIN products p ON p.id = sr.product_id
+            WHERE sr.transaction_code = ?
+            ORDER BY sr.id ASC
+          `, [canonicalTxCode])
+        : await tx.query<any>(`
+            SELECT sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity, 
+                   sr.unit_price_at_sale, sr.discount, sr.total_revenue, sr.total_cost, sr.profit, sr.status,
+                   p.sku as product_sku, p.name as product_name, p.current_cost_price
+            FROM sales_records sr
+            JOIN products p ON p.id = sr.product_id
+            WHERE sr.id = ?
+            ORDER BY sr.id ASC
+          `, [initialSale.id]);
 
       const recordsToCancel = allRecordsForOrder.filter((r) => r.status !== 'CANCELLED');
 

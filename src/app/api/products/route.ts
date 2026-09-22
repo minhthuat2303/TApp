@@ -73,8 +73,16 @@ export async function GET(request: NextRequest) {
     const total = Number(countResult?.total || 0);
     const totalPages = Math.ceil(total / limit);
 
+    const normalizedProducts = (products as any[]).map((p) => ({
+      ...p,
+      current_cost_price: Math.round(Number(p.current_cost_price || 0)),
+      current_selling_price: Math.round(Number(p.current_selling_price || 0)),
+      current_stock: Number(p.current_stock || 0),
+      min_stock_alert: Number(p.min_stock_alert || 0),
+    }));
+
     const resultPayload = {
-      data: products,
+      data: normalizedProducts,
       pagination: {
         page,
         limit,

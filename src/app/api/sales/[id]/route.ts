@@ -40,30 +40,55 @@ export async function GET(
     }
 
     // 2. Fetch all line items belonging to this canonical transaction code or ID
-    const items = await db.query<any>(`
-      SELECT 
-        sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity,
-        sr.unit_price_at_sale, sr.cost_price_at_sale, 
-        COALESCE(sr.discount, 0) as discount,
-        sr.total_revenue, sr.total_cost, sr.profit,
-        COALESCE(sr.status, 'COMPLETED') as status,
-        COALESCE(sr.payment_method, 'CASH') as payment_method,
-        sr.cancel_reason, sr.cancelled_at,
-        sr.note, sr.created_at,
-        p.name as product_name, p.sku,
-        c.name as category_name,
-        pt.name as product_type_name,
-        u.full_name as seller_name,
-        canceller.full_name as canceller_name
-      FROM sales_records sr
-      JOIN products p ON p.id = sr.product_id
-      LEFT JOIN categories c ON c.id = p.category_id
-      LEFT JOIN product_types pt ON pt.id = p.product_type_id
-      LEFT JOIN users u ON u.id = sr.created_by
-      LEFT JOIN users canceller ON canceller.id = sr.cancelled_by
-      WHERE sr.transaction_code = ? OR (sr.id = ? AND ? IS NOT NULL)
-      ORDER BY sr.id ASC
-    `, [canonicalTxCode, numericId, numericId]);
+    const items = canonicalTxCode
+      ? await db.query<any>(`
+          SELECT 
+            sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity,
+            sr.unit_price_at_sale, sr.cost_price_at_sale, 
+            COALESCE(sr.discount, 0) as discount,
+            sr.total_revenue, sr.total_cost, sr.profit,
+            COALESCE(sr.status, 'COMPLETED') as status,
+            COALESCE(sr.payment_method, 'CASH') as payment_method,
+            sr.cancel_reason, sr.cancelled_at,
+            sr.note, sr.created_at,
+            p.name as product_name, p.sku,
+            c.name as category_name,
+            pt.name as product_type_name,
+            u.full_name as seller_name,
+            canceller.full_name as canceller_name
+          FROM sales_records sr
+          JOIN products p ON p.id = sr.product_id
+          LEFT JOIN categories c ON c.id = p.category_id
+          LEFT JOIN product_types pt ON pt.id = p.product_type_id
+          LEFT JOIN users u ON u.id = sr.created_by
+          LEFT JOIN users canceller ON canceller.id = sr.cancelled_by
+          WHERE sr.transaction_code = ?
+          ORDER BY sr.id ASC
+        `, [canonicalTxCode])
+      : await db.query<any>(`
+          SELECT 
+            sr.id, sr.transaction_code, sr.product_id, sr.sale_date, sr.quantity,
+            sr.unit_price_at_sale, sr.cost_price_at_sale, 
+            COALESCE(sr.discount, 0) as discount,
+            sr.total_revenue, sr.total_cost, sr.profit,
+            COALESCE(sr.status, 'COMPLETED') as status,
+            COALESCE(sr.payment_method, 'CASH') as payment_method,
+            sr.cancel_reason, sr.cancelled_at,
+            sr.note, sr.created_at,
+            p.name as product_name, p.sku,
+            c.name as category_name,
+            pt.name as product_type_name,
+            u.full_name as seller_name,
+            canceller.full_name as canceller_name
+          FROM sales_records sr
+          JOIN products p ON p.id = sr.product_id
+          LEFT JOIN categories c ON c.id = p.category_id
+          LEFT JOIN product_types pt ON pt.id = p.product_type_id
+          LEFT JOIN users u ON u.id = sr.created_by
+          LEFT JOIN users canceller ON canceller.id = sr.cancelled_by
+          WHERE sr.id = ?
+          ORDER BY sr.id ASC
+        `, [numericId]);
 
     if (!items || items.length === 0) {
       return NextResponse.json(

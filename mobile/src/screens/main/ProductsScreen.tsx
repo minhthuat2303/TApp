@@ -19,7 +19,7 @@ import Badge from '../../components/common/Badge';
 import Button from '../../components/common/Button';
 import EmptyState from '../../components/common/EmptyState';
 import NetworkBanner from '../../components/common/NetworkBanner';
-import { formatCurrency, formatDateTime } from '../../utils/formatters';
+import { formatCurrency, formatDateTime, formatCurrencyInput, parseCurrencyInput } from '../../utils/formatters';
 import { Colors } from '../../constants/colors';
 import { Spacing, Typography, BorderRadius } from '../../constants/layout';
 import productRepository from '../../repository/ProductRepository';
@@ -189,7 +189,7 @@ export const ProductsScreen: React.FC = () => {
     setEditSku(prod.sku);
     setEditBarcode(prod.barcode || prod.sku);
     setEditCategoryId(prod.category_id);
-    setEditSellingPrice(String(prod.current_selling_price || 0));
+    setEditSellingPrice(formatCurrencyInput(prod.current_selling_price));
     setEditMinStock(String(prod.min_stock_alert || 5));
     setEditStatus(prod.status);
     setEditDescription(prod.description || '');
@@ -217,7 +217,7 @@ export const ProductsScreen: React.FC = () => {
       showAlert('Lỗi nhập liệu', 'Vui lòng nhập tên sản phẩm.');
       return;
     }
-    const priceNum = Number(editSellingPrice.replace(/[^0-9]/g, ''));
+    const priceNum = parseCurrencyInput(editSellingPrice);
     if (isNaN(priceNum) || priceNum < 0) {
       showAlert('Lỗi nhập liệu', 'Giá bán phải là số hợp lệ (>= 0).');
       return;
@@ -978,9 +978,9 @@ export const ProductsScreen: React.FC = () => {
               <Input
                 label="Giá bán niêm yết (VND) (*)"
                 value={editSellingPrice}
-                onChangeText={(t) => { setEditSellingPrice(t); setIsFormDirty(true); }}
+                onChangeText={(t) => { setEditSellingPrice(formatCurrencyInput(t)); setIsFormDirty(true); }}
                 keyboardType="numeric"
-                placeholder="VD: 150000"
+                placeholder="VD: 150,000"
               />
 
               <Input

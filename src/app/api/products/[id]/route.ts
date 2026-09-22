@@ -28,7 +28,15 @@ export async function GET(request: NextRequest, props: Props) {
       );
     }
 
-    return NextResponse.json({ success: true, data: product });
+    const normalizedProduct = {
+      ...product,
+      current_cost_price: Math.round(Number((product as any).current_cost_price || 0)),
+      current_selling_price: Math.round(Number((product as any).current_selling_price || 0)),
+      current_stock: Number((product as any).current_stock || 0),
+      min_stock_alert: Number((product as any).min_stock_alert || 0),
+    };
+
+    return NextResponse.json({ success: true, data: normalizedProduct });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: { code: 'DB_ERROR', message: error.message } },
@@ -83,10 +91,10 @@ export async function PUT(request: NextRequest, props: Props) {
 
     // Process selling price change and record price history
     const effectivePriceInput = selling_price !== undefined ? selling_price : current_selling_price;
-    let newSellingPrice = oldProduct.current_selling_price;
+    let newSellingPrice = Math.round(Number(oldProduct.current_selling_price || 0));
     if (effectivePriceInput !== undefined && effectivePriceInput !== null && !isNaN(Number(effectivePriceInput))) {
-      const parsedPrice = Number(effectivePriceInput);
-      if (parsedPrice >= 0 && parsedPrice !== Number(oldProduct.current_selling_price)) {
+      const parsedPrice = Math.round(Number(effectivePriceInput));
+      if (parsedPrice >= 0 && parsedPrice !== Math.round(Number(oldProduct.current_selling_price || 0))) {
         newSellingPrice = parsedPrice;
         await db.execute(`
           INSERT INTO price_history (product_id, price, effective_from, note, created_by)
@@ -135,7 +143,15 @@ export async function PUT(request: NextRequest, props: Props) {
       VALUES (?, 'UPDATE_PRODUCT', 'PRODUCTS', ?, ?, ?)
     `, [user.id, id, JSON.stringify(oldProduct), JSON.stringify(updated)]);
 
-    return NextResponse.json({ success: true, data: updated });
+    const normalizedUpdated = {
+      ...updated,
+      current_cost_price: Math.round(Number((updated as any).current_cost_price || 0)),
+      current_selling_price: Math.round(Number((updated as any).current_selling_price || 0)),
+      current_stock: Number((updated as any).current_stock || 0),
+      min_stock_alert: Number((updated as any).min_stock_alert || 0),
+    };
+
+    return NextResponse.json({ success: true, data: normalizedUpdated });
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: { code: 'SERVER_ERROR', message: error.message } },

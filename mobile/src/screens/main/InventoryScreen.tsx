@@ -23,7 +23,7 @@ import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import EmptyState from '../../components/common/EmptyState';
 import NetworkBanner from '../../components/common/NetworkBanner';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatCurrencyInput, parseCurrencyInput } from '../../utils/formatters';
 import { Colors } from '../../constants/colors';
 import { Spacing, Typography, BorderRadius } from '../../constants/layout';
 import inventoryRepository from '../../repository/InventoryRepository';
@@ -392,7 +392,7 @@ export const InventoryScreen: React.FC = () => {
       return;
     }
     const qty = parseInt(poItemQty, 10);
-    const cost = parseInt(poItemCost.replace(/[^0-9]/g, ''), 10);
+    const cost = parseCurrencyInput(poItemCost);
     if (isNaN(qty) || qty <= 0) {
       showAlert('Lỗi', 'Số lượng nhập phải lớn hơn 0.');
       return;
@@ -1527,7 +1527,7 @@ export const InventoryScreen: React.FC = () => {
                       ]}
                       onPress={() => {
                         setPoSelectedProdId(p.id);
-                        setPoItemCost(String(p.current_cost_price || 80000));
+                        setPoItemCost(formatCurrencyInput(p.current_cost_price || 80000));
                       }}
                     >
                       <Text style={[styles.historySwitchText, poSelectedProdId === p.id && styles.historySwitchTextActive, { fontSize: 12 }]}>
@@ -1553,9 +1553,9 @@ export const InventoryScreen: React.FC = () => {
                     <TextInput
                       style={styles.modalInput}
                       value={poItemCost}
-                      onChangeText={setPoItemCost}
+                      onChangeText={(t) => setPoItemCost(formatCurrencyInput(t))}
                       keyboardType="numeric"
-                      placeholder="80000"
+                      placeholder="80,000"
                     />
                   </View>
                 </View>

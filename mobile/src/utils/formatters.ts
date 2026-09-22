@@ -61,3 +61,26 @@ export function formatDateTime(dateStr: string | null | undefined): string {
     return String(dateStr);
   }
 }
+
+/**
+ * Formats a raw number or input string as a comma-separated currency string (e.g. 125000 -> "125,000", "125000.00" -> "125,000")
+ * Handles node-postgres decimal strings like '125000.00' without appending extra zeros.
+ */
+export function formatCurrencyInput(val: number | string | null | undefined): string {
+  if (val === null || val === undefined || val === '') return '';
+  const num = typeof val === 'number' ? Math.round(val) : Math.round(parseFloat(String(val).replace(/,/g, '')) || 0);
+  if (isNaN(num)) return '';
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * Parses a currency input string (e.g. "125,000" or "125000" or "125000.00") into an integer VND number (e.g. 125000).
+ * Protects against accidental multiplication or trailing decimal issues.
+ */
+export function parseCurrencyInput(str: string | number | null | undefined): number {
+  if (str === null || str === undefined || str === '') return 0;
+  if (typeof str === 'number') return Math.round(str);
+  const cleaned = String(str).replace(/,/g, '').trim();
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? 0 : Math.round(parsed);
+}
